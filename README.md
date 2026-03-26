@@ -283,6 +283,17 @@ name: "Server 1"
 
 ---
 
+### Advanced one-lines with Jinja Integration
+
+Allows you to use Jinja2 expressions (`{{ ... }}`) directly inside schemas to use your configuration data as validation input.
+
+```yaml
+assigned_cluster: "{{ ROOT.clusters }}" # allowed_value for assigned_clusters are the values of the children of clusters in the configuration tree
+ 
+```
+
+---
+
 ### Detailed Constraints (`$advanced_fields`) & Jinja Integration
 
 Allows you to attach metadata, defaults, and strict constraints to a specific field. You can also use Jinja2 expressions (`{{ ... }}`) directly inside schemas to use your configuration data as validation input.
@@ -293,11 +304,7 @@ $advanced_fields:
     type: string
     default_value: "development"
     allowed_values: ["development", "staging", "production"]
-
-  assigned_cluster:
-    type: string
-    # Dynamically fetches keys from the compiled tree to use as allowed values
-    allowed_values: "{{ ROOT.clusters }}"
+ 
 ```
 
 ---
