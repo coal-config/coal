@@ -1,8 +1,8 @@
 # Coalescence (COAL)
 
-Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It is designed to take modular, highly dynamic configuration definitions and compile them into a single, fully resolved, and strictly validated configuration tree. It uses yaml based schemas that include data from the tree to validate the entire tree. With built in jinja2 expressions data within the tree can easily be interlinked. This allows for reusable data so everything only needs to be defined once.
+Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It is designed to take modular, highly dynamic configuration definitions and compile them into a single, fully resolved, and strictly validated configuration tree. It uses yaml based schemas that include data from the tree to validate the entire tree. With built in jinja2 expressions, data within the tree can easily be reused. This allows for a define-it-once philosophy.
 
-**Why YAML?** Everything in COAL is driven by YAML. YAML was chosen because it is incredibly clear, human-readable, and easy to use. It allows developers and operators to define complex hierarchical structures, references, and logic without the visual clutter of traditional programming languages or strictly bracketed data formats like JSON.
+**Why YAML?** Everything in COAL is driven by YAML. YAML was chosen because it is incredibly clear, human-readable, and easy to use. It allows developers and operators to define complex hierarchical structures, references, and logic without the visual clutter of traditional programming languages.
 
 ---
 
@@ -11,7 +11,7 @@ Coalescence (COAL) is a powerful, Rust-based configuration builder and validatio
 COAL provides a straightforward CLI for compiling and inspecting your configurations:
 
 - **`coal`** — Compiles the `main.yaml` file in the current directory, resolves all directives and Jinja templates, and prints the final flattened YAML to standard output.
-- **`coal --validate`** (or `-v`) — Compiles the tree and runs it against the schema definitions in the `schemas/` directory, entering at `schemas/main.schema`. If errors are found, it outputs a detailed diagnostic report to `stderr` and exits with a non-zero code.
+- **`coal --validate`** (or `-v`) — Compiles the tree and runs it against the schema definitions in the `schemas/` directory. If errors are found, it outputs a detailed diagnostic report to `stderr` and exits with a non-zero code.
 - **`coal --analyze <path>`** (or `-a`) — Dumps the internal Abstract Syntax Tree (AST) properties of a specific field (e.g., `coal -a processes.cms`). Displays the key, value, resolved schema type, origin file, allowed values, and physical line/column span.
 
 ---
@@ -22,7 +22,7 @@ COAL processes configurations in a strict, multi-phase pipeline to ensure depend
 
 ### 1. Expansion (Includes & AST Directives)
 
-COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit` and `$override`) to dynamically duplicate, merge, and generate nodes.
+COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit`, `$select`, and `$map`) to dynamically duplicate, merge, and generate nodes.
 
 ### 2. Processing (Synchronization and Jinja)
 
@@ -46,44 +46,126 @@ COAL reserves keys starting with `$` for system operations, allowing you to mani
 
 These directives pull external YAML files into the current node.
 
-| Directive | Description |
-|---|---|
-| `$include` | Parses a specific file and merges its contents into the current node. |
-| `$include_directory` | Reads all `.yaml` files in a directory. Each file becomes a child object keyed by the file's base name. |
-| `$include_subdirectories` | Looks at all subdirectories in the target path. If a subdirectory contains a `.yaml` file matching the directory's name, it is included as a child object under that name. |
+> **Note:** All of these have `_optional` variants (e.g. `$include_optional`) which silently ignore missing files or directories instead of throwing a fatal error.
 
-> **Note:** All of the above have `_optional` variants (e.g. `$include_optional`) which silently ignore missing files or directories instead of throwing a fatal error.
+#### `$include`
 
-**Example:**
+Parses a specific file and merges its contents into the current node.
 
 ```yaml
-network_config:
-  $include_optional: "./environments/production/network.yaml"
+# main.yaml
+network:
+  $include: "./network.yaml"
+
+# network.yaml
+port: 8080
 ```
+
+```yaml
+# Output
+network:
+  port: 8080
+```
+
+---
 
 ### AST Structural Directives
 
 These directives clone and manipulate the tree structure dynamically.
 
-| Directive | Description |
-|---|---|
-| `$inherit` | Clones the target node's children into the current node. If the current node already has a child with the same key, it deep-merges them, preserving the existing child's deeper leaves. |
-| `$override` | Similar to `$inherit`, but prioritizes the target. If there are key conflicts, the target's structure completely overwrites the current node's structure. |
-| `$each` | Iterates over its own template children and clones them into every sibling of the `$each` directive. Useful for applying a standard set of properties to a list of dynamically declared items. |
+#### `$inherit`
 
-**Example:**
+Clones the target node's children into the current node. If the current node already has a child with the same key, it deep-merges them, preserving the local values over the inherited ones.
 
 ```yaml
-node_types:
-  standard_server:
-    port: 8080
-    logging: true
-
-nodes:
-  web_01:
-    $inherit: "ROOT.node_types.standard_server"
-    ip: "192.168.1.10"  # Inherits port and logging, adds ip
+# Input
+base:
+  port: 80
+  logging: true
+app:
+  $inherit: "ROOT.base"
+  port: 8080
 ```
+
+```yaml
+# Output
+base:
+  port: 80
+  logging: true
+app: 
+  port: 8080
+  logging: true  # Local port wins
+```
+
+#### `$override`
+
+Similar to `$inherit`, but prioritizes the target. If there are key conflicts, the target's structure completely overwrites the local node's structure.
+
+```yaml
+# Input
+base:
+  port: 80
+app:
+  $override: "ROOT.base"
+  port: 8080
+  logging: true
+```
+
+```yaml
+# Output
+base:
+  port: 80
+app: 
+  port: 8080 # Base port wins
+  logging: true  
+```
+
+#### `$each`
+
+Iterates over its own template children and clones them into every sibling of the `$each` directive. Useful for applying a standard set of properties to a list of dynamically declared items.
+
+```yaml
+# Input
+servers:
+  $each:
+    status: "active"
+  srv1: { ip: "1.1.1.1" }
+  srv2: { ip: "2.2.2.2" }
+```
+
+```yaml
+# Output
+servers:
+  srv1: { ip: "1.1.1.1", status: "active" }
+  srv2: { ip: "2.2.2.2", status: "active" }
+```
+
+#### `$select` and `$keys`
+
+Transforms a list into an object by looking up specific keys in a target mapping and cloning their values. If a key is not found, an empty field is created and flagged by the schema validator.
+
+```yaml
+# Input
+available_roles:
+  admin: { permissions: "all" }
+  viewer: { permissions: "read" }
+
+my_roles:
+  $select: "ROOT.available_roles"
+  $keys:
+    - admin
+```
+
+```yaml
+# Output
+available_roles:
+  admin: { permissions: "all" }
+  viewer: { permissions: "read" }
+my_roles:
+  admin: { permissions: "all" }
+```
+
+---
 
 ### Context Variables
 
@@ -93,13 +175,30 @@ During parsing, COAL automatically injects these string replacements:
 |---|---|
 | `$filename` | Replaced with the base name (stem) of the file the node originated from. |
 | `$parent` | Replaced with the key of the node's immediate parent. |
-
-**Example:**
+| `$id` | Generates a sequentially incrementing integer. |
 
 ```yaml
+# Input
 processes:
   cms_service:
-    process_name: "$parent"  # Evaluates to "cms_service"
+    process_name: "$parent"
+    db_id:
+      $id: "db_counters"
+  auth_service:
+    process_name: "$parent"
+    db_id:
+      $id: "db_counters"
+```
+
+```yaml
+# Output
+processes:
+  cms_service:
+    process_name: "cms_service"
+    db_id: 1
+  auth_service:
+    process_name: "auth_service"
+    db_id: 2
 ```
 
 ---
@@ -108,42 +207,85 @@ processes:
 
 The schema engine strictly defines what the compiled YAML is allowed to look like. Schemas are defined as YAML files inside the `schemas/` directory, with the entry point named `main.schema` or `main.yaml`.
 
-### Basic Types
+### Basic Types & Lists (`[]`)
 
-You can define a field's required type using simple strings: `string`, `integer`, `float`, `number`, `bool`, `list`, `object`, or `any`.
-
-**Example:**
+You can define a field's required type using simple strings: `string`, `integer`, `float`, `number`, `bool`, `list`, `object`, or `any`. To enforce that a list only contains a specific type, wrap the type in brackets (`[]`).
 
 ```yaml
+# Schema
 server_name: string
-port: integer
-is_active: bool
+ports: [integer]  # Must be a list of integers
+tags: [string]    # Must be a list of strings
+
+# Data (validates successfully)
+server_name: "prod-01"
+ports: [80, 443]
+tags: ["web", "frontend"]
 ```
-### Jinja2 Integration
 
-COAL seamlessly bridges your data and your validation rules. You can use Jinja2 expressions (`{{ ... }}`) directly inside your schemas to use your own configuration data as validation input.
-
-For example, to ensure a node is only assigned to a cluster that actually exists elsewhere in your configuration:
-
-```yaml
-clusters: "[string]"
-assigned_cluster: "{{ ROOT.clusters }}"
-```
+---
 
 ### Advanced Schema Directives
 
-Schemas use their own `$` directives to enforce complex logic.
+#### `$schema`
 
-| Directive | Description |
-|---|---|
-| `$schema: "schema_name"` | Acts as a mixin, deep-merging another schema file from the `schemas/` directory into the current location. |
-| `$declare` / `$use` | Defines reusable sub-schemas within the same file. Define a block under `$declare: { my_type: ... }` and apply it elsewhere with `$use: my_type`. |
-| `$any` | Permits the object to contain undeclared fields without throwing an error. |
-| `$optional` | A mapping of fields that are permitted but not required. |
+Acts as a mixin, deep-merging another schema file from the `schemas/` directory into the current location.
 
-### Detailed Field Constraints (`$advanced_fields`)
+```yaml
+# main.schema
+my_server:
+  $schema: "server_schema"  # Merges schemas/server_schema.yaml
+```
 
-Allows you to attach metadata and strict constraints to a specific field:
+#### `$declare` / `$use`
+
+Defines reusable sub-schemas within the same file.
+
+```yaml
+$declare:
+  ip_config:
+    address: string
+    gateway: string
+
+node_1:
+  $use: "ip_config"
+```
+
+#### `$any`
+
+Permits the object to contain undeclared fields without throwing an error.
+
+```yaml
+# Schema
+metadata:
+  $any: string  # Allows any key, as long as the value is a string
+
+# Data (validates successfully)
+metadata:
+  custom_tag: "v1.2"
+  owner: "admin"
+```
+
+#### `$optional`
+
+A mapping of fields that are permitted but not strictly required. If they are missing, the diagnostics engine will not flag them as errors.
+
+```yaml
+# Schema
+type: object
+name: string
+$optional:
+  description: string
+
+# Data (validates successfully — description is omitted)
+name: "Server 1"
+```
+
+---
+
+### Detailed Constraints (`$advanced_fields`) & Jinja Integration
+
+Allows you to attach metadata, defaults, and strict constraints to a specific field. You can also use Jinja2 expressions (`{{ ... }}`) directly inside schemas to use your configuration data as validation input.
 
 ```yaml
 $advanced_fields:
@@ -151,17 +293,30 @@ $advanced_fields:
     type: string
     default_value: "development"
     allowed_values: ["development", "staging", "production"]
+
+  assigned_cluster:
+    type: string
+    # Dynamically fetches keys from the compiled tree to use as allowed values
+    allowed_values: "{{ ROOT.clusters }}"
 ```
+
+---
 
 ### Conditional Logic (`$conditional_fields`)
 
 Allows schemas to mutate based on the data present in the compiled tree. Uses an `$if` block (which supports `$and` and `$or`) to check sibling values. If the condition is met, the `$then` block applies a sub-schema.
 
 ```yaml
+# Schema
 $conditional_fields:
   - $if:
       type: "database"
     $then:
       db_port: integer
       db_password: string
+
+# Data (validates successfully)
+type: "database"
+db_port: 5432
+db_password: "secure"
 ```
