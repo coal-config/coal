@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "coal",
+    "coal-lsp"
+]
+resolver = "2"
