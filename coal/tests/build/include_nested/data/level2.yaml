@@ -1,0 +1,3 @@
+level2_field: level2_value
+level3:
+  $include: ./level3.yaml

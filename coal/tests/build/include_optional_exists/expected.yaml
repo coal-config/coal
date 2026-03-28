@@ -1,0 +1,4 @@
+main:
+  optional_part:
+    found: true
+    data: present

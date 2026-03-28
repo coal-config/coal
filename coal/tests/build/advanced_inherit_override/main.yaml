@@ -1,0 +1,13 @@
+main:
+  defaults:
+    protocol: http
+    port: 80
+    timeout: 30
+  secure_base:
+    $override: defaults
+    protocol: https
+    port: 443
+  production:
+    $inherit: secure_base
+    timeout: 60
+    retries: 3

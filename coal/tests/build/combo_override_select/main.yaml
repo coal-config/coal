@@ -1,0 +1,19 @@
+main:
+  defaults:
+    option1:
+      value: default1
+      enabled: true
+    option2:
+      value: default2
+      enabled: true
+    option3:
+      value: default3
+      enabled: false
+  base:
+    field: original
+  custom:
+    $override: base
+    $select: defaults
+    $keys:
+      - option1
+      - option3

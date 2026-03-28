@@ -1,0 +1,10 @@
+main:
+  environments:
+    dev:
+      host: dev.example.com
+      port: 3000
+    prod:
+      host: prod.example.com
+      port: 443
+    enabled: true
+    logging: verbose

@@ -1,0 +1,3 @@
+protocol: https
+port: 443
+timeout: 60

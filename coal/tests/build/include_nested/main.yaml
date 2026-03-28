@@ -1,0 +1,3 @@
+main:
+  level1:
+    $include: ./data/level2.yaml

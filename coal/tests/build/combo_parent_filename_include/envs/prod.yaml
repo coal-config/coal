@@ -1,0 +1,7 @@
+servers:
+  web:
+    env: $filename
+    name: $parent
+  api:
+    env: $filename
+    name: $parent

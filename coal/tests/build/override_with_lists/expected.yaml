@@ -1,0 +1,11 @@
+main:
+  base:
+    items:
+      - item1
+      - item2
+    field: base_value
+  child:
+    items:
+      - item1
+      - item2
+    field: base_value

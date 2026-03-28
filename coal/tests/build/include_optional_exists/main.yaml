@@ -1,0 +1,3 @@
+main:
+  optional_part:
+    $include_optional: ./existing.yaml

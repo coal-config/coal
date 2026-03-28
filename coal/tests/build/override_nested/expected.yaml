@@ -1,0 +1,13 @@
+main:
+  base:
+    field1: base1
+    field2: base2
+    nested:
+      inner1: value1
+      inner2: value2
+  child:
+    nested:
+      inner1: value1
+      inner2: value2
+    field1: base1
+    field2: base2

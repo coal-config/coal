@@ -1,0 +1,11 @@
+main:
+  $include_directory: ./templates
+  servers:
+    server1:
+      $inherit: base_template
+      name: $parent
+    server2:
+      $inherit: base_template
+      name: $parent
+  $each:
+    monitored: true

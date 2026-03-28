@@ -1,0 +1,17 @@
+main:
+  api:
+    routes:
+      users:
+        path: /users
+      posts:
+        path: /posts
+      method: REST
+      version: v1
+  db:
+    tables:
+      users:
+        primary_key: id
+      posts:
+        primary_key: id
+      engine: postgres
+      charset: utf8

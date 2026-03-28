@@ -1,0 +1,9 @@
+main:
+  group1:
+    name: first
+  group2:
+    name: second
+  $each:
+    items:
+      - default1
+      - default2

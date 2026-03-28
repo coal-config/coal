@@ -1,0 +1,9 @@
+main:
+  servers:
+    server1:
+      host: host1
+    server2:
+      host: host2
+    port: 8080
+    config:
+      timeout: 30

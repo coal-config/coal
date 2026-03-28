@@ -1,0 +1,14 @@
+main:
+  defaults:
+    protocol: http
+    port: 80
+    timeout: 30
+  secure_base:
+    protocol: http
+    port: 80
+    timeout: 30
+  production:
+    timeout: 60
+    retries: 3
+    protocol: http
+    port: 80

@@ -1,0 +1,5 @@
+main:
+  level1:
+    level2_field: level2_value
+    level3:
+      level3_field: level3_value

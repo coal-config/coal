@@ -1,0 +1,4 @@
+base:
+  protocol: https
+  timeout: 30
+  cache: true

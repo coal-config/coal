@@ -1,0 +1,8 @@
+main:
+  servers:
+    web_server:
+      name: web_server
+      type: web
+    db_server:
+      name: db_server
+      type: database

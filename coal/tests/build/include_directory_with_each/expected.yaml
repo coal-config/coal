@@ -1,0 +1,17 @@
+main:
+  api:
+    endpoints:
+      health:
+        path: /health
+      status:
+        path: /status
+      method: GET
+      timeout: 30
+  auth:
+    endpoints:
+      login:
+        path: /login
+      logout:
+        path: /logout
+      method: POST
+      timeout: 60

@@ -1,0 +1,10 @@
+main:
+  $include: ./templates/base.yaml
+  server1:
+    $inherit: base_config
+    name: server1
+    custom_port: 8081
+  server2:
+    $inherit: base_config
+    name: server2
+    custom_port: 8082

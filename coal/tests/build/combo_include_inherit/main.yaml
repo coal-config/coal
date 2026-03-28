@@ -1,0 +1,5 @@
+main:
+  $include: ./data/base.yaml
+  child:
+    $inherit: base
+    custom: value

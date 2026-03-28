@@ -1,0 +1,20 @@
+main:
+  source1:
+    items:
+      - item1
+      - item2
+  source2:
+    items:
+      - item3
+      - item4
+  source3:
+    items:
+      - item5
+      - item6
+  all_items:
+    - item1
+    - item2
+    - item3
+    - item4
+    - item5
+    - item6

@@ -1,0 +1,13 @@
+main:
+  base1:
+    field1: value1
+    field2: value2
+  base2:
+    field3: value3
+    field4: value4
+  child:
+    field1: overridden
+    field2: value2
+  grandchild:
+    field1: overridden
+    field2: overridden_again

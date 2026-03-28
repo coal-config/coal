@@ -1,0 +1,11 @@
+main:
+  environments:
+    production:
+      name: production
+      servers:
+        app1:
+          env: app1
+          host: server1
+        app2:
+          env: app2
+          host: server2

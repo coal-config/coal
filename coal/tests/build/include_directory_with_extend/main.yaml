@@ -1,0 +1,7 @@
+main:
+  $include_directory: ./sources
+  all_items:
+    $extend:
+      - source1.items
+      - source2.items
+      - source3.items

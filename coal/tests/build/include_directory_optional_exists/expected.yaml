@@ -1,0 +1,6 @@
+main:
+  configs:
+    config1:
+      setting: value1
+    config2:
+      setting: value2

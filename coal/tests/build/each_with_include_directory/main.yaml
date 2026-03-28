@@ -1,0 +1,6 @@
+main:
+  environments:
+    $include_directory: ./configs
+  $each:
+    enabled: true
+    logging: verbose

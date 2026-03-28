@@ -1,0 +1,10 @@
+main:
+  default_settings:
+    debug: true
+    log_level: verbose
+    cache: false
+  production:
+    debug: true
+    log_level: verbose
+    cache: false
+    environment: production

@@ -1,0 +1,8 @@
+tables:
+  users:
+    primary_key: id
+  posts:
+    primary_key: id
+$each:
+  engine: postgres
+  charset: utf8

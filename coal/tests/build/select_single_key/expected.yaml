@@ -1,0 +1,11 @@
+main:
+  source:
+    key1:
+      field: value1
+    key2:
+      field: value2
+    key3:
+      field: value3
+  result:
+    key2:
+      field: value2

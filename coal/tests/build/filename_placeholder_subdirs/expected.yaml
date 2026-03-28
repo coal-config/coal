@@ -1,0 +1,7 @@
+main:
+  api:
+    service_name: api
+    port: 8080
+  worker:
+    service_name: worker
+    port: 9090

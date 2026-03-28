@@ -1,0 +1,5 @@
+main:
+  configs:
+    $include_directory_optional: ./nonexistent_dir
+  other:
+    field: value

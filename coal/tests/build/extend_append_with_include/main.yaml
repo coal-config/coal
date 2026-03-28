@@ -1,0 +1,10 @@
+main:
+  $include: ./lists/sources.yaml
+  combined_list:
+    $append:
+      - first
+      - second
+    $extend:
+      - list1
+      - list2
+      - list3

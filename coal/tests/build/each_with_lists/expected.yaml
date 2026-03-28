@@ -1,0 +1,11 @@
+main:
+  group1:
+    name: first
+    items:
+      - default1
+      - default2
+  group2:
+    name: second
+    items:
+      - default1
+      - default2

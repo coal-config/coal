@@ -1,0 +1,12 @@
+main:
+  base:
+    protocol: https
+    port: 443
+  child1:
+    protocol: https
+    port: 443
+    name: child1
+  child2:
+    protocol: https
+    port: 443
+    name: child2

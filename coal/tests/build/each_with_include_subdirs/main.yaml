@@ -1,0 +1,5 @@
+main:
+  services:
+    $include_subdirectories: ./services
+  $each:
+    monitoring: enabled

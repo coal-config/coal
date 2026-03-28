@@ -1,0 +1,8 @@
+endpoints:
+  login:
+    path: /login
+  logout:
+    path: /logout
+$each:
+  method: POST
+  timeout: 60

@@ -1,0 +1,9 @@
+main:
+  services:
+    web:
+      port: 80
+      replicas: 3
+    worker:
+      queue: redis
+      concurrency: 10
+    monitoring: enabled

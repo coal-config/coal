@@ -1,0 +1,2 @@
+service_name: $filename
+port: 8080

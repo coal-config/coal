@@ -1,0 +1,20 @@
+main:
+  basic_base:
+    protocol: http
+    port: 80
+  secure_base:
+    protocol: https
+    port: 443
+  performance_base:
+    cache: true
+    workers: 10
+  dev:
+    protocol: https
+    port: 443
+    environment: development
+  staging:
+    protocol: https
+    port: 443
+    cache: true
+    workers: 10
+    environment: staging

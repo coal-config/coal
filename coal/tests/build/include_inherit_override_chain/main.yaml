@@ -1,0 +1,9 @@
+main:
+  $include: ./data/bases.yaml
+  dev:
+    $inherit: secure_base
+    environment: development
+  staging:
+    $inherit: secure_base
+    $override: performance_base
+    environment: staging

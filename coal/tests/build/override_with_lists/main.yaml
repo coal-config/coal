@@ -1,0 +1,10 @@
+main:
+  base:
+    items:
+      - item1
+      - item2
+    field: base_value
+  child:
+    $override: base
+    items:
+      - new_item

@@ -1,0 +1,11 @@
+main:
+  $include: ./configs/bases.yaml
+  tier1:
+    $inherit: base
+    level: 1
+  tier2:
+    $inherit: tier1
+    level: 2
+  tier3:
+    $inherit: tier2
+    level: 3

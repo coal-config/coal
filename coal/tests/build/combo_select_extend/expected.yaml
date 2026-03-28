@@ -1,0 +1,24 @@
+main:
+  items:
+    item1:
+      - a
+      - b
+    item2:
+      - c
+      - d
+    item3:
+      - e
+      - f
+  selected:
+    item1:
+      - a
+      - b
+    item3:
+      - e
+      - f
+  combined:
+    - start
+    - a
+    - b
+    - e
+    - f

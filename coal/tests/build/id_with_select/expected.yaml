@@ -1,0 +1,13 @@
+main:
+  options:
+    opt1:
+      value: v1
+    opt2:
+      value: v2
+    opt3:
+      value: v3
+  selected:
+    opt1:
+      value: v1
+    opt3:
+      value: v3

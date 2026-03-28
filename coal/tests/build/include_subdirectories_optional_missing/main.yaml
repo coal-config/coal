@@ -1,0 +1,5 @@
+main:
+  modules:
+    $include_subdirectories_optional: ./nonexistent_modules
+  other:
+    field: value

@@ -1,0 +1,4 @@
+default_settings:
+  debug: true
+  log_level: verbose
+  cache: false

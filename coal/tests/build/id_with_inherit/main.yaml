@@ -1,0 +1,10 @@
+main:
+  base:
+    protocol: https
+    port: 443
+  child1:
+    $inherit: base
+    name: child1
+  child2:
+    $inherit: base
+    name: child2

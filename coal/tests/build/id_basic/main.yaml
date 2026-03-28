@@ -1,0 +1,7 @@
+main:
+  server1:
+    $id: srv1
+    name: server1
+  server2:
+    name: server2
+    reference: srv1

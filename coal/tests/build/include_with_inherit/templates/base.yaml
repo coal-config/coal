@@ -1,0 +1,4 @@
+base_config:
+  protocol: https
+  timeout: 30
+  retries: 3

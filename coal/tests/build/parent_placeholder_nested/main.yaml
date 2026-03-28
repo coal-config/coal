@@ -1,0 +1,11 @@
+main:
+  environments:
+    production:
+      name: $parent
+      servers:
+        app1:
+          env: $parent
+          host: server1
+        app2:
+          env: $parent
+          host: server2

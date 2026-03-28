@@ -1,0 +1,5 @@
+main:
+  $include: ./configs/defaults.yaml
+  production:
+    $override: default_settings
+    environment: production

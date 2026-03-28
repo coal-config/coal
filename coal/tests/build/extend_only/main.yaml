@@ -1,0 +1,11 @@
+main:
+  source1:
+    - a
+    - b
+  source2:
+    - c
+    - d
+  combined:
+    $extend:
+      - source1
+      - source2

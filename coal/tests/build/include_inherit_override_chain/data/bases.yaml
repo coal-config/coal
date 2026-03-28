@@ -1,0 +1,10 @@
+basic_base:
+  protocol: http
+  port: 80
+secure_base:
+  $inherit: basic_base
+  protocol: https
+  port: 443
+performance_base:
+  cache: true
+  workers: 10

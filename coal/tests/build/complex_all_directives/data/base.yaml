@@ -1,0 +1,7 @@
+defaults:
+  protocol: http
+  timeout: 30
+secure_base:
+  $override: defaults
+  protocol: https
+  timeout: 60

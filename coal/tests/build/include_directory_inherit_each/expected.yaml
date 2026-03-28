@@ -1,0 +1,23 @@
+main:
+  servers:
+    server1:
+      name: server1
+      protocol: https
+      port: 443
+      timeout: 60
+      monitored: true
+    server2:
+      name: server2
+      protocol: https
+      port: 443
+      timeout: 60
+      monitored: true
+    monitored: true
+  base_template:
+    protocol: https
+    port: 443
+    timeout: 60
+    monitored: true
+  secondary:
+    backup: enabled
+    monitored: true

@@ -1,0 +1,27 @@
+main:
+  base_features:
+    feature1:
+      - capability_a
+      - capability_b
+    feature2:
+      - capability_c
+      - capability_d
+    feature3:
+      - capability_e
+  selected_features:
+    feature1:
+      - capability_a
+      - capability_b
+    feature3:
+      - capability_e
+  base_config:
+    timeout: 30
+    retries: 3
+  full_config:
+    capabilities:
+      - capability_a
+      - capability_b
+      - capability_e
+      - custom_capability
+    timeout: 30
+    retries: 3

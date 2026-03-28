@@ -1,0 +1,13 @@
+main:
+  $include: ./data/base.yaml
+  servers:
+    web1:
+      $inherit: secure_base
+      name: $parent
+      port: 8080
+    web2:
+      $inherit: secure_base
+      name: $parent
+      port: 8081
+  $each:
+    region: us-east-1

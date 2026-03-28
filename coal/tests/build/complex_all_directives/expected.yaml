@@ -1,0 +1,23 @@
+main:
+  servers:
+    web1:
+      name: web1
+      port: 8080
+      protocol: http
+      timeout: 30
+      region: us-east-1
+    web2:
+      name: web2
+      port: 8081
+      protocol: http
+      timeout: 30
+      region: us-east-1
+    region: us-east-1
+  defaults:
+    protocol: http
+    timeout: 30
+    region: us-east-1
+  secure_base:
+    protocol: http
+    timeout: 30
+    region: us-east-1

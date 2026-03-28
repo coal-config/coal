@@ -1,0 +1,8 @@
+routes:
+  users:
+    path: /users
+  posts:
+    path: /posts
+$each:
+  method: REST
+  version: v1

@@ -1,0 +1,12 @@
+main:
+  base1:
+    field1: base1_value
+    field2: base1_value2
+  base2:
+    field2: base2_value
+    field3: base2_value3
+  child:
+    field1: base1_value
+    field2: base2_value
+    field3: base2_value3
+    field4: child_value

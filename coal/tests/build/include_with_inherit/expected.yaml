@@ -1,0 +1,17 @@
+main:
+  base_config:
+    protocol: https
+    timeout: 30
+    retries: 3
+  server1:
+    protocol: https
+    timeout: 30
+    retries: 3
+    name: server1
+    custom_port: 8081
+  server2:
+    protocol: https
+    timeout: 30
+    retries: 3
+    name: server2
+    custom_port: 8082

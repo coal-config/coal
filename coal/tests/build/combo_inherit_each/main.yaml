@@ -1,0 +1,13 @@
+main:
+  base:
+    protocol: https
+    timeout: 30
+  servers:
+    server1:
+      $inherit: base
+      host: host1.com
+    server2:
+      $inherit: base
+      host: host2.com
+  $each:
+    enabled: true

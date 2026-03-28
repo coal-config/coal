@@ -1,0 +1,8 @@
+main:
+  modules:
+    mod1:
+      version: 1.0
+      enabled: true
+    mod2:
+      version: 2.0
+      enabled: false

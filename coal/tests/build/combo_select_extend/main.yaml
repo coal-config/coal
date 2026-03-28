@@ -1,0 +1,22 @@
+main:
+  items:
+    item1:
+      - a
+      - b
+    item2:
+      - c
+      - d
+    item3:
+      - e
+      - f
+  selected:
+    $select: items
+    $keys:
+      - item1
+      - item3
+  combined:
+    $append:
+      - start
+    $extend:
+      - selected.item1
+      - selected.item3

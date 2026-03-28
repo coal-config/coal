@@ -1,0 +1,26 @@
+main:
+  base_features:
+    feature1:
+      - capability_a
+      - capability_b
+    feature2:
+      - capability_c
+      - capability_d
+    feature3:
+      - capability_e
+  selected_features:
+    $select: base_features
+    $keys:
+      - feature1
+      - feature3
+  base_config:
+    timeout: 30
+    retries: 3
+  full_config:
+    $inherit: base_config
+    capabilities:
+      $extend:
+        - selected_features.feature1
+        - selected_features.feature3
+      $append:
+        - custom_capability
