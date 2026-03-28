@@ -1,0 +1,7 @@
+main:
+  base:
+    field: value
+    target: inherited
+  child:
+    $inherit: base
+    field: child

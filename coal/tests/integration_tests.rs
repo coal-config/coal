@@ -39,8 +39,8 @@ fn run_directory_tests(test_suite_dir: &str, validate: bool) {
                 validate,
             );
 
+
             if !validate {
-                // --- BUILD ASSERTIONS ---
                 let (root, _) = result.unwrap_or_else(|e| panic!("Test '{}' failed to execute: {}", test_name, e));
 
                 let expected_yaml_path = test_case_dir.join("expected.yaml");
@@ -55,8 +55,9 @@ fn run_directory_tests(test_suite_dir: &str, validate: bool) {
                     actual_value, expected_value,
                     "\n[FAILED] Output mismatch in test: {}\n", test_name
                 );
+                println!("  ✅ [PASSED] {}", test_name);
+
             } else {
-                // --- VALIDATION ASSERTIONS ---
                 let (_, errors) = result.unwrap_or_else(|e| panic!("Test '{}' failed to execute: {}", test_name, e));
 
                 let expected_errors_path = test_case_dir.join("expected_errors.yaml");
@@ -86,6 +87,8 @@ fn run_directory_tests(test_suite_dir: &str, validate: bool) {
                         test_name, expected_contains, actual.error_message_string
                     );
                 }
+
+                println!("  ✅ [PASSED] {}", test_name);
             }
         }
     }

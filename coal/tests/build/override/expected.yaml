@@ -1,0 +1,5 @@
+main:
+  base:
+    field: overridden
+  child:
+    field: overridden

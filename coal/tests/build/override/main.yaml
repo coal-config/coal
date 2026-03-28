@@ -1,0 +1,6 @@
+main:
+  base:
+    field: overridden
+  child:
+    $override: base
+    field: child

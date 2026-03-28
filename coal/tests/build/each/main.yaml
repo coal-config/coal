@@ -1,0 +1,11 @@
+main:
+  fields1:
+    field: value1
+  fields2:
+    field: value2
+  fields3:
+    field: value3
+  fields4:
+    field: value4
+  $each:
+    field2: value

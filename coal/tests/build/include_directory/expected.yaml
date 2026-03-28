@@ -1,0 +1,5 @@
+main:
+  target1:
+    target_field: target
+  target2:
+    target_field: target

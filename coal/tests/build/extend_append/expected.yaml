@@ -1,0 +1,15 @@
+main:
+  list1:
+    - value3
+    - value4
+  list2:
+    - value5
+    - value6
+  extended_list:
+    - value1
+    - value2
+    - value3
+    - value4
+    - value5
+    - value6
+

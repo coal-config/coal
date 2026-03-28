@@ -1,0 +1,19 @@
+main:
+  base:
+    select1:
+      field1: value1
+      field2: value1
+    select2:
+      field1: value2
+      field2: value2
+    select3:
+      field1: value3
+      field2: value3
+  selector:
+    select1:
+      field1: value1
+      field2: value1
+    select3:
+      field1: value3
+      field2: value3
+

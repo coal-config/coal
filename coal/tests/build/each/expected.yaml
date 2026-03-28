@@ -1,0 +1,13 @@
+main:
+  fields1:
+    field: value1
+    field2: value
+  fields2:
+    field: value2
+    field2: value
+  fields3:
+    field: value3
+    field2: value
+  fields4:
+    field: value4
+    field2: value
