@@ -34,19 +34,15 @@ jobs:
 
       # Build both projects in their respective directories
       - name: Build coal
-        working-directory: ./coal
-        run: cargo build --release
-
-      - name: Build coal-lsp
-        working-directory: ./coal-lsp
+        working-directory: ./
         run: cargo build --release
 
       - name: Rename Binaries for Release
         # Using bash ensures this works on both Windows and Linux runners
         shell: bash
         run: |
-          mv coal/target/release/coal${{ matrix.ext }} coal-${{ github.event.inputs.version }}-${{ matrix.os_name }}${{ matrix.ext }}
-          mv coal-lsp/target/release/coal-lsp${{ matrix.ext }} coal-lsp-${{ github.event.inputs.version }}-${{ matrix.os_name }}${{ matrix.ext }}
+          mv target/release/coal${{ matrix.ext }} coal-${{ github.event.inputs.version }}-${{ matrix.os_name }}${{ matrix.ext }}
+          mv target/release/coal-lsp${{ matrix.ext }} coal-lsp-${{ github.event.inputs.version }}-${{ matrix.os_name }}${{ matrix.ext }}
 
       - name: Upload Binaries to GitHub Release
         uses: softprops/action-gh-release@v2
