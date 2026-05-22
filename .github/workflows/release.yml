@@ -94,12 +94,6 @@ jobs:
           name: coal-lsp-linux
           path: ./coal_extension
 
-      - name: Debug - List root files
-        run: ls -la
-
-      - name: Debug - List extension folder files
-        run: ls -la ./coal_extension || echo "Folder does not exist!"
-
       - name: Install Dependencies and Package VSIX
         working-directory: ./coal_extension
         run: |
