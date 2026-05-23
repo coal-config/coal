@@ -1,0 +1,12 @@
+$schema: string
+test: string
+test2: string
+test3: 
+    - test
+    - test2
+    - test4
+    - bla
+    - test5
+    - blat
+test5: integer
+test6: string

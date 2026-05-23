@@ -1,0 +1,4 @@
+id: cop01
+type: cop
+paths:
+  $include: ./paths.yaml

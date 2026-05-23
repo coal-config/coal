@@ -1,0 +1,5 @@
+$schema: environment
+environment: production
+$include: ../environments.yaml
+paths:
+  $include: ./paths.yaml
