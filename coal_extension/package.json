@@ -23,7 +23,17 @@
         "extensions": [".coal"],
         "configuration": "./language-configuration.json"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "COAL",
+      "properties": {
+        "coal.languageServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the coal-lsp executable. If left empty, the extension will look for 'coal-lsp' in your system PATH."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",
