@@ -32,7 +32,6 @@ jobs:
         run: |
           LATEST_TAG=$(git tag -l "lsp-v*" | sort -V | tail -n 1)
           if [ -z "$LATEST_TAG" ]; then 
-            # If no release exists, default to 0.0.1
             NEW_VERSION="0.0.1"
           else
             VERSION=${LATEST_TAG#lsp-v}
@@ -103,6 +102,10 @@ jobs:
   build-extension:
     needs: versioning
     runs-on: ubuntu-latest
+    # This sets the working directory for all 'run' commands in this job
+    defaults:
+      run:
+        working-directory: ./coal_extension
     steps:
       - uses: actions/checkout@v4
 
@@ -120,9 +123,11 @@ jobs:
           npx vsce package -o coal-extension-${{ needs.versioning.outputs.new_version }}.vsix
 
       - name: Upload Extension to Release
+        # This is an action, not a 'run' command, so it runs from the repo root.
+        # We must explicitly point 'files' to the subdirectory.
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ needs.versioning.outputs.new_tag }}
-          files: "*.vsix"
+          files: "coal_extension/*.vsix"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
