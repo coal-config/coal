@@ -79,7 +79,7 @@ jobs:
 
       - name: Package VS Code Extension
         run: |
-          npm version ${{ needs.versioning.outputs.new_version }} --no-git-tag-version
+          npm version ${{ needs.versioning.outputs.new_version }} --no-git-tag-version --allow-same-version
           npx vsce package -o coal-extension-${{ needs.versioning.outputs.new_version }}.vsix
 
       - name: Upload Extension to Release
