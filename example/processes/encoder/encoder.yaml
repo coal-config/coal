@@ -1,0 +1,3 @@
+executable: "{{paths.process_directory}}/encoder"
+configuration_directory: "{{paths.process_configuration_directory}}/encoder"
+$include: ./arguments.yaml

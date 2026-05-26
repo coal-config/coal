@@ -1,3 +1,0 @@
-type: cop
-paths:
-  $include: ./paths.yaml

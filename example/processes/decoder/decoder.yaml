@@ -1,0 +1,2 @@
+executable: "{{paths.process_directory}}/decoder"
+configuration_directory: "{{paths.process_configuration_directory}}/decoder"

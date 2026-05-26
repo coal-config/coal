@@ -1,0 +1,6 @@
+processes:
+    $any:
+        $schema: process
+users:
+    $any:
+        $schema: user

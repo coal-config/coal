@@ -1,4 +1,8 @@
-test: test
-test2: 543
-$include: include.yaml
-test5: testt
+environments:
+  $include_subdirectories: environments
+processes:
+  $include_subdirectories: processes
+users:
+  $include_directory: users
+paths:
+  $include: paths.yaml

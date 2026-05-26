@@ -1,14 +1,11 @@
-test: string
-test2: string
-test3: 
-    - test
-    - test2
-    - test4
-    - bla
-    - test5
-    - blat
-test5: integer
-test6: string
-test7:
-    test1: object
-    test2: object
+paths:
+    $schema: paths
+environments:
+    $any:
+        $schema: environment
+processes:
+    $any:
+        $schema: process
+users:
+    $any:
+        $schema: user

@@ -1,0 +1,4 @@
+executable: string
+configuration_directory: string
+$optional:
+  arguments: "[string]"

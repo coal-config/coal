@@ -1,0 +1,18 @@
+processes:
+  $inherit:
+    $select: ROOT.processes
+    $keys:
+      - encoder
+      - decoder
+  encoder:
+    arguments:
+      - -v
+      - -staging
+users:
+  $select: ROOT.users
+  $keys:
+    - admin
+    - coal
+  stager:
+    name: stager
+    type: user

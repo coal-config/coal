@@ -1,5 +1,10 @@
-$schema: environment
-environment: production
-$include: ../environments.yaml
-paths:
-  $include: ./paths.yaml
+processes:
+  $select: ROOT.processes
+  $keys:
+    - encoder
+    - decoder
+users:
+  $select: ROOT.users
+  $keys:
+    - admin
+    - coal

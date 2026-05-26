@@ -1,0 +1,4 @@
+configuration_directory: string
+process_directory: string
+process_configuration_directory: string
+users_directory: string
