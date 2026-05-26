@@ -388,30 +388,51 @@ fn resolve_node_jinja_recursive(
 
     if let Some(content_string) = node_value_as_string {
         if let Some(captures) = get_exact_regex().captures(&content_string) {
-            // Case A: Exact Match - Replace entire node with target node
             let reference_path = captures[1].trim();
             if let Some(target) = find_target_node_using_reference_path(reference_path, Rc::clone(&node), Rc::clone(&root)) {
-                // Recursively resolve the target first to ensure we get the final value
-                resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(&root), visited);
 
-                let (target_value, target_children) = {
-                    let borrowed_target = target.borrow();
-                    (borrowed_target.value.clone(), borrowed_target.children.clone())
-                };
+                let target_path = target.borrow().get_path();
 
-                let mut node_mut = node.borrow_mut();
-                node_mut.value = target_value;
-                node_mut.children.clear();
-                drop(node_mut);
+                if !visited.contains(&target_path) {
+                    resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(&root), visited);
 
-                for child in target_children {
-                    let cloned = clone_tree_node_recursively(child, Rc::clone(&node));
-                    node.borrow_mut().children.push(cloned);
+                    let (target_value, target_children) = {
+                        let borrowed_target = target.borrow();
+                        (borrowed_target.value.clone(), borrowed_target.children.clone())
+                    };
+
+                    let mut node_mut = node.borrow_mut();
+                    node_mut.value = target_value;
+                    node_mut.children.clear();
+                    drop(node_mut);
+
+                    for child in target_children {
+                        let cloned = clone_tree_node_recursively(child, Rc::clone(&node));
+                        node.borrow_mut().children.push(cloned);
+                    }
+                    substitution_occurred = true;
                 }
-                substitution_occurred = true;
             }
         } else if get_partial_regex().is_match(&content_string) {
             // Case B: Partial Match - Replace placeholders within the string
+
+            // NEW: Pre-resolve all target nodes in their native scope before extracting their values
+            let partial_regex = get_partial_regex();
+            for captures in partial_regex.captures_iter(&content_string) {
+                let reference_path = captures[1].trim();
+                if let Some(target) = find_target_node_using_reference_path(
+                    reference_path,
+                    Rc::clone(&node),
+                    Rc::clone(&root)
+                ) {
+                    let target_path = target.borrow().get_path();
+                    if !visited.contains(&target_path) {
+                        resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(&root), visited);
+                    }
+                }
+            }
+
+            // Now that targets are fully resolved, extract their strings
             let resolved_string = resolve_jinja_reference_string(&content_string, Rc::clone(&node), Rc::clone(&root));
             if resolved_string != content_string {
                 node.borrow_mut().value = Some(Value::String(resolved_string));
@@ -420,15 +441,12 @@ fn resolve_node_jinja_recursive(
         }
     }
 
-    // 3. CRITICAL: If a substitution happened, re-run this node to resolve nested references
-    // We remove the path from 'visited' temporarily to allow the re-scan
     visited.remove(&current_path);
     if substitution_occurred {
         resolve_node_jinja_recursive(node, root, visited);
     }
 }
 
-// ADD THIS HELPER: Recursively scrubs $ directives from raw serde_yaml Values
 pub fn strip_system_directives_from_value(value: &mut Value) {
     match value {
         Value::Mapping(map) => {
@@ -441,13 +459,9 @@ pub fn strip_system_directives_from_value(value: &mut Value) {
                     }
                 }
             }
-
-            // Remove the unprocessed directive keys
             for key in keys_to_remove {
                 map.remove(&key);
             }
-
-            // Recurse into remaining valid keys
             for (_, v) in map.iter_mut() {
                 strip_system_directives_from_value(v);
             }
@@ -461,7 +475,6 @@ pub fn strip_system_directives_from_value(value: &mut Value) {
     }
 }
 
-// UPDATE THIS FUNCTION: Now cleans both the AST children AND the raw fallback values
 pub fn clean_up_system_directives(node: Rc<RefCell<CoalTree>>) {
     {
         let mut borrowed = node.borrow_mut();
