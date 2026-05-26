@@ -1,4 +1,3 @@
-$schema: string
 test: string
 test2: string
 test3: 
@@ -10,3 +9,6 @@ test3:
     - blat
 test5: integer
 test6: string
+test7:
+    test1: object
+    test2: object
