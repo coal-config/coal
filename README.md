@@ -1,10 +1,6 @@
-Here is the updated `README.md` with the separated code blocks, explicit file names preceding every example, and the new sections for `$include_directory` and `$include_subdirectories`.
-
----
-
 # Coalescence (COAL)
 
-Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It is designed to take modular, highly dynamic configuration definitions and compile them into a single, fully resolved, and strictly validated configuration tree. It uses yaml based schemas that include data from the tree to validate the entire tree. With built in jinja2 expressions, data within the tree can easily be reused. This allows for a define-it-once philosophy.
+Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It is designed to take modular, highly dynamic configuration definitions and compile them into a single, fully resolved, and strictly validated configuration tree in the yaml format. It uses yaml based schemas that include data from the tree to validate the entire tree. With built in jinja2 expressions, data within the tree can easily be reused. This allows for a define-it-once philosophy.
 
 **Why YAML?** Everything in COAL is driven by YAML. YAML was chosen because it is incredibly clear, human-readable, and easy to use. It allows developers and operators to define complex hierarchical structures, references, and logic without the visual clutter of traditional programming languages.
 
@@ -17,6 +13,12 @@ COAL provides a straightforward CLI for compiling and inspecting your configurat
 * **`coal`** — Compiles the `main.yaml` file in the current directory, resolves all directives and Jinja templates, and prints the final flattened YAML to standard output.
 * **`coal --validate`** (or `-v`) — Compiles the tree and runs it against the schema definitions in the `schema/` directory. If errors are found, it outputs a detailed diagnostic report to `stderr` and exits with a non-zero code.
 * **`coal --analyze <path>`** (or `-a`) — Dumps the internal Abstract Syntax Tree (AST) properties of a specific field (e.g., `coal -a processes.cms`). Displays the key, value, resolved schema type, origin file, allowed values, and physical line/column span.
+
+---
+
+## Example
+
+In `/example` there is an example coal confuration project. Run `coal` in this directory to see the output it creates. This output is in yaml format and can be directly imported with any yaml parser. 
 
 ---
 
