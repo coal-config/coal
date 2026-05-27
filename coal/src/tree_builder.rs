@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 
 pub fn build_entire_coal_configuration_tree(
     entry_path: &str,
-    schema_dir_path: &str,
+    schema_directory_path: &str,
     vfs: Arc<Mutex<VirtualFileSystem>>,
     validate: bool,
 ) -> Result<(Rc<RefCell<CoalTree>>, Vec<DiagnosticError>), Box<dyn Error>> {
@@ -40,7 +40,7 @@ pub fn build_entire_coal_configuration_tree(
     // Phase 4: Validation
     let mut diagnostic_errors = Vec::new();
     if validate {
-        execute_validation_pipeline(Rc::clone(&root), vfs, schema_dir_path, &mut diagnostic_errors)?; // UPDATED
+        execute_validation_pipeline(Rc::clone(&root), vfs, schema_directory_path, &mut diagnostic_errors)?; // UPDATED
     }
 
     // Phase 5: Final Cleanup

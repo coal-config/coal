@@ -20,15 +20,8 @@ pub fn generate_diagnostics_for_entire_tree(
     let path = node_borrowed.get_path();
     let origin = node_borrowed.origin.clone().unwrap_or_else(|| "Unknown Origin".to_string());
 
-    if !node_borrowed.allowed {
-        diagnostic_errors.push(create_diagnostic_error("FieldNotAllowed", &path, &origin, format!("field: {} -> not allowed", node_borrowed.key.as_deref().unwrap_or("")), node_borrowed.span.clone()));
-    }
-
-    if node_borrowed.value.is_none() && !node_borrowed.optional {
-        let schema = node_borrowed.schema_origin.as_deref().unwrap_or("Unknown Schema");
-        let expected = node_borrowed.field_type.as_deref().unwrap_or("any");
-        diagnostic_errors.push(create_diagnostic_error("MissingMandatoryField", &path, &origin, format!("[{}] value: None -> expected {}", schema, expected), node_borrowed.span.clone()));
-    }
+    check_field_allowed_status(&node_borrowed, &path, &origin, diagnostic_errors);
+    check_mandatory_field_presence(&node_borrowed, &path, &origin, diagnostic_errors);
 
     if let Some(ref value) = node_borrowed.value {
         validate_constraints(&node_borrowed, value, &path, &origin, diagnostic_errors);
@@ -39,6 +32,42 @@ pub fn generate_diagnostics_for_entire_tree(
 
     for child in children_to_process {
         generate_diagnostics_for_entire_tree(child, diagnostic_errors);
+    }
+}
+
+fn check_field_allowed_status(
+    node: &CoalTree,
+    path: &str,
+    origin: &str,
+    diagnostic_errors: &mut Vec<DiagnosticError>,
+) {
+    if !node.allowed {
+        diagnostic_errors.push(create_diagnostic_error(
+            "FieldNotAllowed",
+            path,
+            origin,
+            format!("field: {} -> not allowed", node.key.as_deref().unwrap_or("")),
+            node.span.clone(),
+        ));
+    }
+}
+
+fn check_mandatory_field_presence(
+    node: &CoalTree,
+    path: &str,
+    origin: &str,
+    diagnostic_errors: &mut Vec<DiagnosticError>,
+) {
+    if node.value.is_none() && !node.optional {
+        let schema = node.schema_origin.as_deref().unwrap_or("Unknown Schema");
+        let expected = node.field_type.as_deref().unwrap_or("any");
+        diagnostic_errors.push(create_diagnostic_error(
+            "MissingMandatoryField",
+            path,
+            origin,
+            format!("[{}] value: None -> expected {}", schema, expected),
+            node.span.clone(),
+        ));
     }
 }
 

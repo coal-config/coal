@@ -129,30 +129,46 @@ fn handle_select_node(
     let target_path = resolve_jinja_reference_string(&target_path_raw, Rc::clone(&directive_node), Rc::clone(&root_node));
     let target_node_opt = find_target_node_using_reference_path(&target_path, Rc::clone(&directive_node), Rc::clone(&root_node));
 
+    let (keys_to_select, keys_node_to_remove) = extract_keys_to_select(&parent_node);
+
+    let transformations = map_keys_to_targets(keys_to_select, target_node_opt);
+
+    if let Some(kn) = keys_node_to_remove {
+        parent_node.borrow_mut().children.retain(|c| !Rc::ptr_eq(c, &kn));
+    }
+
+    generate_selected_children(transformations, &parent_node);
+
+    Ok(())
+}
+
+fn extract_keys_to_select(parent_node: &Rc<RefCell<CoalTree>>) -> (Vec<(String, Option<crate::coal_tree::Span>, Option<String>)>, Option<Rc<RefCell<CoalTree>>>) {
     let mut keys_to_select = Vec::new();
     let mut keys_node_to_remove = None;
 
-    // 1. Extract the requested keys AND their exact text spans/origins
-    {
-        let parent_borrowed = parent_node.borrow();
-        for child in &parent_borrowed.children {
-            let child_borrowed = child.borrow();
-            if child_borrowed.key.as_deref() == Some("$keys") {
-                keys_node_to_remove = Some(Rc::clone(child));
-                for k_child in &child_borrowed.children {
-                    let k_borrowed = k_child.borrow();
-                    if let Some(serde_yaml::Value::String(k)) = &k_borrowed.value {
-                        // CRITICAL: Capture the span and origin here
-                        keys_to_select.push((k.clone(), k_borrowed.span.clone(), k_borrowed.origin.clone()));
-                    }
+    let parent_borrowed = parent_node.borrow();
+    for child in &parent_borrowed.children {
+        let child_borrowed = child.borrow();
+        if child_borrowed.key.as_deref() == Some("$keys") {
+            keys_node_to_remove = Some(Rc::clone(child));
+            for k_child in &child_borrowed.children {
+                let k_borrowed = k_child.borrow();
+                if let Some(serde_yaml::Value::String(k)) = &k_borrowed.value {
+                    keys_to_select.push((k.clone(), k_borrowed.span.clone(), k_borrowed.origin.clone()));
                 }
             }
         }
     }
+    
+    (keys_to_select, keys_node_to_remove)
+}
 
+fn map_keys_to_targets(
+    keys_to_select: Vec<(String, Option<crate::coal_tree::Span>, Option<String>)>,
+    target_node_opt: Option<Rc<RefCell<CoalTree>>>,
+) -> Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<Rc<RefCell<CoalTree>>>)> {
     let mut transformations = Vec::new();
 
-    // 2. Map requested keys to available targets
     if let Some(target_node) = target_node_opt {
         let target_borrowed = target_node.borrow();
         for (requested_key, span, origin) in keys_to_select {
@@ -167,19 +183,18 @@ fn handle_select_node(
             transformations.push((requested_key, span, origin, None));
         }
     }
+    
+    transformations
+}
 
-    // 3. Remove the $keys node so it doesn't linger in the tree
-    if let Some(kn) = keys_node_to_remove {
-        parent_node.borrow_mut().children.retain(|c| !Rc::ptr_eq(c, &kn));
-    }
-
-    // 4. Generate the new children on the parent node
+fn generate_selected_children(
+    transformations: Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<Rc<RefCell<CoalTree>>>)>,
+    parent_node: &Rc<RefCell<CoalTree>>,
+) {
     for (new_key, span, origin, source_child_opt) in transformations {
-
-        // CRITICAL: Pass the captured span and origin into the new morphed node
         let new_child = Rc::new(RefCell::new(CoalTree {
             key: Some(new_key.clone()),
-            parent: Some(Rc::downgrade(&parent_node)),
+            parent: Some(Rc::downgrade(parent_node)),
             allowed: true,
             span,
             origin,
@@ -195,8 +210,6 @@ fn handle_select_node(
                 new_child.borrow_mut().children.push(cloned);
             }
         } else {
-            // Missing key constraint: Make it empty, but trigger a targeted diagnostics error
-            // exactly at the line where the user typed the invalid array item.
             let mut borrowed_mut = new_child.borrow_mut();
             borrowed_mut.value = Some(serde_yaml::Value::Null);
             borrowed_mut.allowed = false;
@@ -204,8 +217,6 @@ fn handle_select_node(
 
         parent_node.borrow_mut().children.push(new_child);
     }
-
-    Ok(())
 }
 
 fn handle_append_node(

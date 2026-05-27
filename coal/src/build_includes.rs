@@ -87,21 +87,15 @@ fn handle_standard_file_include(
         let fully_resolved_path =
             resolve_full_path(&unresolved_path, &include_node, &root_node);
 
-        let file_content = match vfs.lock().unwrap().get_file_content(&fully_resolved_path) {
-            Ok(content) => content,
-            Err(error) => {
-                if is_optional { continue; }
-                return Err(error);
-            }
-        };
-
-        process_and_integrate_yaml_file(
-            &file_content,
-            &fully_resolved_path,
-            Rc::clone(&parent_node),
-            Rc::clone(&root_node),
-            Arc::clone(&vfs),
-        )?;
+        if let Some(file_content) = read_file_from_vfs(&vfs, &fully_resolved_path, is_optional)? {
+            process_and_integrate_yaml_file(
+                &file_content,
+                &fully_resolved_path,
+                Rc::clone(&parent_node),
+                Rc::clone(&root_node),
+                Arc::clone(&vfs),
+            )?;
+        }
     }
     Ok(())
 }
@@ -118,25 +112,19 @@ fn handle_directory_include(
     for unresolved_path in target_paths {
         let directory_path = resolve_full_path(&unresolved_path, &include_node, &root_node);
 
-        let directory_entries = match fs::read_dir(Path::new(&directory_path)) {
-            Ok(iter) => iter,
-            Err(error) => {
-                if is_optional { continue; }
-                return Err(format!("Could not read include directory '{}': {}", directory_path, error).into());
-            }
-        };
-
-        for entry in directory_entries {
-            let path = entry?.path();
-            if is_yaml_file(&path) {
-                let file_stem = path.file_stem().unwrap().to_str().unwrap().to_string();
-                process_named_child_file(
-                    &path,
-                    file_stem,
-                    Rc::clone(&parent_node),
-                    Rc::clone(&root_node),
-                    Arc::clone(&vfs),
-                )?;
+        if let Some(directory_entries) = read_directory_optional(&directory_path, is_optional, "Could not read include directory")? {
+            for entry in directory_entries {
+                let path = entry?.path();
+                if is_yaml_file(&path) {
+                    let file_stem = path.file_stem().unwrap().to_str().unwrap().to_string();
+                    process_named_child_file(
+                        &path,
+                        file_stem,
+                        Rc::clone(&parent_node),
+                        Rc::clone(&root_node),
+                        Arc::clone(&vfs),
+                    )?;
+                }
             }
         }
     }
@@ -155,28 +143,22 @@ fn handle_subdirectories_include(
     for unresolved_path in target_paths {
         let base_directory = resolve_full_path(&unresolved_path, &include_node, &root_node);
 
-        let entries = match fs::read_dir(Path::new(&base_directory)) {
-            Ok(iter) => iter,
-            Err(error) => {
-                if is_optional { continue; }
-                return Err(format!("Could not read subdirectories in '{}': {}", base_directory, error).into());
-            }
-        };
+        if let Some(entries) = read_directory_optional(&base_directory, is_optional, "Could not read subdirectories in")? {
+            for entry in entries {
+                let subdirectory_path = entry?.path();
+                if subdirectory_path.is_dir() {
+                    let dir_name = subdirectory_path.file_name().unwrap().to_str().unwrap().to_string();
+                    let yaml_file_path = subdirectory_path.join(format!("{}.yaml", dir_name));
 
-        for entry in entries {
-            let subdir_path = entry?.path();
-            if subdir_path.is_dir() {
-                let dir_name = subdir_path.file_name().unwrap().to_str().unwrap().to_string();
-                let yaml_file_path = subdir_path.join(format!("{}.yaml", dir_name));
-
-                if yaml_file_path.exists() && yaml_file_path.is_file() {
-                    process_named_child_file(
-                        &yaml_file_path,
-                        dir_name,
-                        Rc::clone(&parent_node),
-                        Rc::clone(&root_node),
-                        Arc::clone(&vfs),
-                    )?;
+                    if yaml_file_path.exists() && yaml_file_path.is_file() {
+                        process_named_child_file(
+                            &yaml_file_path,
+                            dir_name,
+                            Rc::clone(&parent_node),
+                            Rc::clone(&root_node),
+                            Arc::clone(&vfs),
+                        )?;
+                    }
                 }
             }
         }
@@ -186,6 +168,36 @@ fn handle_subdirectories_include(
 
 // --- Helper Logic Functions ---
 
+fn read_file_from_vfs(
+    vfs: &Arc<Mutex<VirtualFileSystem>>,
+    path: &str,
+    is_optional: bool,
+) -> Result<Option<String>, Box<dyn Error>> {
+    match vfs.lock().unwrap().get_file_content(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(error) => {
+            if is_optional { Ok(None) } else { Err(error) }
+        }
+    }
+}
+
+fn read_directory_optional(
+    path: &str,
+    is_optional: bool,
+    error_prefix: &str,
+) -> Result<Option<fs::ReadDir>, Box<dyn Error>> {
+    match fs::read_dir(Path::new(path)) {
+        Ok(iter) => Ok(Some(iter)),
+        Err(error) => {
+            if is_optional {
+                Ok(None)
+            } else {
+                Err(format!("{} '{}': {}", error_prefix, path, error).into())
+            }
+        }
+    }
+}
+
 fn process_and_integrate_yaml_file(
     content: &str,
     file_path: &str,
@@ -193,50 +205,46 @@ fn process_and_integrate_yaml_file(
     root: Rc<RefCell<CoalTree>>,
     vfs: Arc<Mutex<VirtualFileSystem>>,
 ) -> Result<(), Box<dyn Error>> {
-    let marked_node = marked_yaml::parse_yaml(0, content)
-        .map_err(|e| format!("YAML Parse Error in file '{}': {}", file_path, e))?;
+    let temporary_root = parse_and_build_tree_node(content, file_path, "TEMPORARY_ROOT".to_string(), Rc::clone(&parent))?;
 
-    let temporary_root = Rc::new(RefCell::new(CoalTree {
-        key: Some(String::from("TEMPORARY_ROOT")),
-        value: Some(marked_node_to_serde_value(&marked_node)),
-        origin: Some(file_path.to_string()),
-        parent: Some(Rc::downgrade(&parent)),
-        ..Default::default()
-    }));
-
-    build_tree_from_marked_node(&marked_node, Rc::clone(&temporary_root), file_path);
     process_all_include_functions_depth_first(Rc::clone(&temporary_root), root, vfs)?;
 
+    merge_temporary_tree_into_parent(temporary_root, parent);
+    Ok(())
+}
+
+fn merge_temporary_tree_into_parent(
+    temporary_root: Rc<RefCell<CoalTree>>,
+    parent: Rc<RefCell<CoalTree>>,
+) {
     let temp_children = temporary_root.borrow().children.clone();
 
     if temp_children.is_empty() {
         parent.borrow_mut().value = temporary_root.borrow().value.clone();
     } else {
-        // NEW: Detect if the incoming file is a list
         let is_temp_list = temporary_root.borrow().is_list_type();
-
-        // Find the highest numeric index currently in the parent to avoid overwriting
-        let mut current_idx = parent.borrow().children.iter()
-            .filter_map(|c| c.borrow().key.as_deref().unwrap_or("").parse::<usize>().ok())
-            .max()
-            .map(|m| m + 1)
-            .unwrap_or(0);
+        let mut current_idx = get_next_list_index(&parent);
 
         for child in temp_children {
             child.borrow_mut().parent = Some(Rc::downgrade(&parent));
 
             if is_temp_list {
-                // If it's a list, assign the next sequential index and append
                 child.borrow_mut().key = Some(current_idx.to_string());
                 parent.borrow_mut().children.push(Rc::clone(&child));
                 current_idx += 1;
             } else {
-                // If it's an object, merge it normally
                 add_or_replace_child_node_in_parent(Rc::clone(&parent), child, false);
             }
         }
     }
-    Ok(())
+}
+
+fn get_next_list_index(node: &Rc<RefCell<CoalTree>>) -> usize {
+    node.borrow().children.iter()
+        .filter_map(|c| c.borrow().key.as_deref().unwrap_or("").parse::<usize>().ok())
+        .max()
+        .map(|m| m + 1)
+        .unwrap_or(0)
 }
 
 fn process_named_child_file(
@@ -249,22 +257,33 @@ fn process_named_child_file(
     let file_path_string = normalize_path(path.to_str().unwrap());
     let content = vfs.lock().unwrap().get_file_content(&file_path_string)?;
 
-    let marked_node = marked_yaml::parse_yaml(0, &content)
-        .map_err(|e| format!("YAML Parse Error in '{}': {}", file_path_string, e))?;
+    let child_node = parse_and_build_tree_node(&content, &file_path_string, key_name, Rc::clone(&parent))?;
 
-    let child_node = Rc::new(RefCell::new(CoalTree {
-        key: Some(key_name),
-        value: Some(marked_node_to_serde_value(&marked_node)),
-        parent: Some(Rc::downgrade(&parent)),
-        origin: Some(file_path_string.clone()),
-        ..Default::default()
-    }));
-
-    build_tree_from_marked_node(&marked_node, Rc::clone(&child_node), &file_path_string);
     process_all_include_functions_depth_first(Rc::clone(&child_node), root, vfs)?;
     add_or_replace_child_node_in_parent(parent, child_node, false);
 
     Ok(())
+}
+
+fn parse_and_build_tree_node(
+    content: &str,
+    file_path: &str,
+    key_name: String,
+    parent: Rc<RefCell<CoalTree>>,
+) -> Result<Rc<RefCell<CoalTree>>, Box<dyn Error>> {
+    let marked_node = marked_yaml::parse_yaml(0, content)
+        .map_err(|e| format!("YAML Parse Error in '{}': {}", file_path, e))?;
+
+    let node = Rc::new(RefCell::new(CoalTree {
+        key: Some(key_name),
+        value: Some(marked_node_to_serde_value(&marked_node)),
+        parent: Some(Rc::downgrade(&parent)),
+        origin: Some(file_path.to_string()),
+        ..Default::default()
+    }));
+
+    build_tree_from_marked_node(&marked_node, Rc::clone(&node), file_path);
+    Ok(node)
 }
 
 fn resolve_full_path(

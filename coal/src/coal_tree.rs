@@ -45,25 +45,43 @@ impl Default for CoalTree {
 
 impl CoalTree {
     pub fn get_path(&self) -> String {
+        let mut path_elements = self.collect_path_elements();
+        path_elements.reverse();
+        path_elements.join(".")
+    }
+
+    fn collect_path_elements(&self) -> Vec<String> {
         let mut path_elements = Vec::new();
+        
         if let Some(ref current_key) = self.key {
             path_elements.push(current_key.clone());
         }
 
-        let mut current_parent = self.parent.as_ref().and_then(|weak| weak.upgrade());
+        let mut current_parent = self.get_parent_rc();
 
         while let Some(parent_reference) = current_parent {
             let parent_borrowed = parent_reference.borrow();
-            if let Some(ref parent_key) = parent_borrowed.key {
-                if parent_key != "ROOT" && parent_key != "TEMP" {
-                    path_elements.push(parent_key.clone());
-                }
-            }
-            current_parent = parent_borrowed.parent.as_ref().and_then(|weak| weak.upgrade());
+            Self::add_valid_parent_key(&mut path_elements, &parent_borrowed);
+            current_parent = parent_borrowed.get_parent_rc();
         }
 
-        path_elements.reverse();
-        path_elements.join(".")
+        path_elements
+    }
+
+    fn get_parent_rc(&self) -> Option<Rc<RefCell<CoalTree>>> {
+        self.parent.as_ref().and_then(|weak| weak.upgrade())
+    }
+
+    fn add_valid_parent_key(path_elements: &mut Vec<String>, parent: &CoalTree) {
+        if let Some(ref parent_key) = parent.key {
+            if Self::is_valid_path_key(parent_key) {
+                path_elements.push(parent_key.clone());
+            }
+        }
+    }
+
+    fn is_valid_path_key(key: &str) -> bool {
+        key != "ROOT" && key != "TEMP"
     }
 
     pub fn is_list_type(&self) -> bool {
@@ -71,18 +89,24 @@ impl CoalTree {
             return false;
         }
         self.children.iter().all(|child| {
-            child.borrow().key.as_deref().unwrap_or("").parse::<usize>().is_ok()
+            Self::is_numeric_key(&child.borrow().key)
         })
     }
 
+    fn is_numeric_key(key: &Option<String>) -> bool {
+        key.as_deref().unwrap_or("").parse::<usize>().is_ok()
+    }
+
     pub fn is_object_type(&self) -> bool {
-        if let Some(ref value) = self.value {
-            if value.is_mapping() { return true; }
-        }
-        if !self.children.is_empty() && !self.is_list_type() {
-            return true;
-        }
-        false
+        self.has_mapping_value() || self.has_object_children()
+    }
+
+    fn has_mapping_value(&self) -> bool {
+        self.value.as_ref().map_or(false, |val| val.is_mapping())
+    }
+
+    fn has_object_children(&self) -> bool {
+        !self.children.is_empty() && !self.is_list_type()
     }
 }
 
@@ -90,21 +114,33 @@ pub fn tree_to_yaml(current_tree_node: Rc<RefCell<CoalTree>>) -> Value {
     let node_borrowed = current_tree_node.borrow();
 
     if node_borrowed.children.is_empty() {
-        return node_borrowed.value.clone().unwrap_or(Value::Null);
+        return get_node_value(&node_borrowed);
     }
 
     if node_borrowed.is_list_type() {
-        let sequence = node_borrowed.children.iter()
-            .map(|child| tree_to_yaml(Rc::clone(child)))
-            .collect();
-        Value::Sequence(sequence)
+        convert_children_to_sequence(&node_borrowed.children)
     } else {
-        let mut mapping = Mapping::new();
-        for child in &node_borrowed.children {
-            if let Some(ref key) = child.borrow().key {
-                mapping.insert(Value::String(key.clone()), tree_to_yaml(Rc::clone(child)));
-            }
-        }
-        Value::Mapping(mapping)
+        convert_children_to_mapping(&node_borrowed.children)
     }
+}
+
+fn get_node_value(node: &CoalTree) -> Value {
+    node.value.clone().unwrap_or(Value::Null)
+}
+
+fn convert_children_to_sequence(children: &[Rc<RefCell<CoalTree>>]) -> Value {
+    let sequence = children.iter()
+        .map(|child| tree_to_yaml(Rc::clone(child)))
+        .collect();
+    Value::Sequence(sequence)
+}
+
+fn convert_children_to_mapping(children: &[Rc<RefCell<CoalTree>>]) -> Value {
+    let mut mapping = Mapping::new();
+    for child in children {
+        if let Some(ref key) = child.borrow().key {
+            mapping.insert(Value::String(key.clone()), tree_to_yaml(Rc::clone(child)));
+        }
+    }
+    Value::Mapping(mapping)
 }

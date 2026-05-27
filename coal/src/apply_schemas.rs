@@ -109,207 +109,264 @@ pub fn apply_schema_definition_to_tree_node(
     passed_down_declarations_dictionary: &HashMap<String, Value>
 ) -> Result<(), Box<dyn Error>> {
 
-    let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
-    target_node_borrowed_mutably.schema_origin = Some(schema_origin_name_string.to_string());
-    target_node_borrowed_mutably.allowed = false;
+    {
+        let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+        target_node_borrowed_mutably.schema_origin = Some(schema_origin_name_string.to_string());
+        target_node_borrowed_mutably.allowed = false;
+    }
 
     match schema_definition_value {
-        Value::String(simple_type_string) => {
-            if simple_type_string.starts_with('[') && simple_type_string.ends_with(']') {
-                target_node_borrowed_mutably.field_type = Some("list".to_string());
-                target_node_borrowed_mutably.allowed = true;
-
-                let inner_schema_string = &simple_type_string[1..simple_type_string.len() - 1];
-                let inner_schema_value = Value::String(inner_schema_string.to_string());
-
-                let children_array = target_node_borrowed_mutably.children.clone();
-                drop(target_node_borrowed_mutably);
-
-                for child_node_reference in children_array {
-                    apply_schema_definition_to_tree_node(
-                        Rc::clone(&child_node_reference),
-                        &inner_schema_value,
-                        schema_origin_name_string,
-                        Rc::clone(&root_tree_node),
-                        loaded_schemas_dictionary,
-                        passed_down_declarations_dictionary
-                    )?;
-                }
-                return Ok(());
-            } else if simple_type_string.contains("{{") {
-                target_node_borrowed_mutably.field_type = Some("string".to_string());
-                target_node_borrowed_mutably.allowed = true;
-
-                drop(target_node_borrowed_mutably);
-
-                if let Some(resolved_values_array) = resolve_jinja_reference_for_allowed_values_if_applicable(
-                    simple_type_string,
-                    Rc::clone(&target_tree_node),
-                    Rc::clone(&root_tree_node)
-                ) {
-                    target_tree_node.borrow_mut().allowed_values = Some(resolved_values_array);
-                }
-            } else {
-                target_node_borrowed_mutably.field_type = Some(simple_type_string.clone());
-                target_node_borrowed_mutably.allowed = true;
-            }
-        }
-        Value::Sequence(schema_sequence_array) => {
-            let mut all_elements_are_strings_boolean = true;
-            let mut extracted_allowed_values_array = Vec::new();
-
-            for sequence_item_value in schema_sequence_array {
-                if let Value::String(string_value) = sequence_item_value {
-                    extracted_allowed_values_array.push(Value::String(string_value.clone()));
-                } else {
-                    all_elements_are_strings_boolean = false;
-                    break;
-                }
-            }
-
-            if all_elements_are_strings_boolean && !schema_sequence_array.is_empty() {
-                target_node_borrowed_mutably.field_type = Some("string".to_string());
-                target_node_borrowed_mutably.allowed = true;
-                target_node_borrowed_mutably.allowed_values = Some(extracted_allowed_values_array);
-            } else if schema_sequence_array.len() == 1 && schema_sequence_array[0].is_mapping() {
-                target_node_borrowed_mutably.field_type = Some("list".to_string());
-                target_node_borrowed_mutably.allowed = true;
-
-                let inner_mapping_schema_value = &schema_sequence_array[0];
-                let children_array = target_node_borrowed_mutably.children.clone();
-                drop(target_node_borrowed_mutably);
-
-                for child_node_reference in children_array {
-                    apply_schema_definition_to_tree_node(
-                        Rc::clone(&child_node_reference),
-                        inner_mapping_schema_value,
-                        schema_origin_name_string,
-                        Rc::clone(&root_tree_node),
-                        loaded_schemas_dictionary,
-                        passed_down_declarations_dictionary
-                    )?;
-                }
-                return Ok(());
-            }
-        }
-        Value::Mapping(schema_mapping_object) => {
-            if let Some(Value::String(use_target_string)) = schema_mapping_object.get(&Value::String("$use".to_string())) {
-                if let Some(declared_subschema_value) = passed_down_declarations_dictionary.get(use_target_string) {
-                    drop(target_node_borrowed_mutably);
-                    return apply_schema_definition_to_tree_node(
-                        Rc::clone(&target_tree_node),
-                        declared_subschema_value,
-                        schema_origin_name_string,
-                        Rc::clone(&root_tree_node),
-                        loaded_schemas_dictionary,
-                        passed_down_declarations_dictionary
-                    );
-                }
-            }
-
-            target_node_borrowed_mutably.field_type = Some("object".to_string());
-            target_node_borrowed_mutably.allowed = true;
-
-            let mut allows_any_additional_fields_boolean = false;
-            if schema_mapping_object.contains_key(&Value::String("$any".to_string())) {
-                allows_any_additional_fields_boolean = true;
-            }
-
-            let mut local_declarations_dictionary = passed_down_declarations_dictionary.clone();
-            if let Some(Value::Mapping(declare_mapping_object)) = schema_mapping_object.get(&Value::String("$declare".to_string())) {
-                for (declare_key_value, declare_schema_value) in declare_mapping_object {
-                    if let Value::String(declare_key_string) = declare_key_value {
-                        local_declarations_dictionary.insert(declare_key_string.clone(), declare_schema_value.clone());
-                    }
-                }
-            }
-
-            let optional_fields_array = extract_optional_fields_list_from_schema(schema_mapping_object);
-
-            drop(target_node_borrowed_mutably);
-
-            inject_missing_keys_from_schema_mapping(
-                schema_mapping_object,
-                Rc::clone(&target_tree_node),
-                schema_origin_name_string
-            );
-
-            let target_node_borrowed_mutably = target_tree_node.borrow_mut();
-            let current_children_array = target_node_borrowed_mutably.children.clone();
-
-            for child_node_reference in &current_children_array {
-                child_node_reference.borrow_mut().allowed = false;
-            }
-
-            drop(target_node_borrowed_mutably);
-
-            for child_node_reference in current_children_array {
-                let child_key_option = child_node_reference.borrow().key.clone();
-
-                if let Some(child_key_string) = child_key_option {
-                    let schema_key_value = Value::String(child_key_string.clone());
-
-                    let mut found_schema_definition_option = schema_mapping_object.get(&schema_key_value);
-                    let mut is_optional_boolean = optional_fields_array.contains(&child_key_string);
-
-                    if found_schema_definition_option.is_none() {
-                        if let Some(Value::Mapping(optional_mapping_object)) = schema_mapping_object.get(&Value::String("$optional".to_string())) {
-                            if let Some(optional_schema_definition) = optional_mapping_object.get(&schema_key_value) {
-                                found_schema_definition_option = Some(optional_schema_definition);
-                                is_optional_boolean = true;
-                            }
-                        }
-                    }
-
-                    if let Some(child_schema_definition) = found_schema_definition_option {
-                        apply_schema_definition_to_tree_node(
-                            Rc::clone(&child_node_reference),
-                            child_schema_definition,
-                            schema_origin_name_string,
-                            Rc::clone(&root_tree_node),
-                            loaded_schemas_dictionary,
-                            &local_declarations_dictionary
-                        )?;
-
-                        let mut child_node_borrowed_mutably = child_node_reference.borrow_mut();
-                        if is_optional_boolean {
-                            child_node_borrowed_mutably.optional = true;
-                        }
-                    } else if allows_any_additional_fields_boolean {
-                        if let Some(any_schema_definition) = schema_mapping_object.get(&Value::String("$any".to_string())) {
-                            apply_schema_definition_to_tree_node(
-                                Rc::clone(&child_node_reference),
-                                any_schema_definition,
-                                schema_origin_name_string,
-                                Rc::clone(&root_tree_node),
-                                loaded_schemas_dictionary,
-                                &local_declarations_dictionary
-                            )?;
-                        }
-                    } else if child_key_string.starts_with('$') {
-                        child_node_reference.borrow_mut().allowed = true;
-                    }
-                }
-            }
-
-            evaluate_advanced_fields_for_schema_mapping(
-                schema_mapping_object,
-                Rc::clone(&target_tree_node),
-                Rc::clone(&root_tree_node),
-                schema_origin_name_string
-            )?;
-
-            evaluate_conditional_fields_for_schema_mapping(
-                schema_mapping_object,
-                Rc::clone(&target_tree_node),
-                Rc::clone(&root_tree_node),
-                schema_origin_name_string,
-                loaded_schemas_dictionary,
-                &local_declarations_dictionary
-            )?;
-        }
+        Value::String(simple_type_string) => apply_string_schema(
+            target_tree_node,
+            simple_type_string,
+            schema_origin_name_string,
+            root_tree_node,
+            loaded_schemas_dictionary,
+            passed_down_declarations_dictionary
+        )?,
+        Value::Sequence(schema_sequence_array) => apply_sequence_schema(
+            target_tree_node,
+            schema_sequence_array,
+            schema_origin_name_string,
+            root_tree_node,
+            loaded_schemas_dictionary,
+            passed_down_declarations_dictionary
+        )?,
+        Value::Mapping(schema_mapping_object) => apply_mapping_schema(
+            target_tree_node,
+            schema_mapping_object,
+            schema_origin_name_string,
+            root_tree_node,
+            loaded_schemas_dictionary,
+            passed_down_declarations_dictionary
+        )?,
         _ => {}
     }
+
+    Ok(())
+}
+
+fn apply_string_schema(
+    target_tree_node: Rc<RefCell<CoalTree>>,
+    simple_type_string: &str,
+    schema_origin_name_string: &str,
+    root_tree_node: Rc<RefCell<CoalTree>>,
+    loaded_schemas_dictionary: &HashMap<String, Value>,
+    passed_down_declarations_dictionary: &HashMap<String, Value>
+) -> Result<(), Box<dyn Error>> {
+    let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+
+    if simple_type_string.starts_with('[') && simple_type_string.ends_with(']') {
+        target_node_borrowed_mutably.field_type = Some("list".to_string());
+        target_node_borrowed_mutably.allowed = true;
+
+        let inner_schema_string = &simple_type_string[1..simple_type_string.len() - 1];
+        let inner_schema_value = Value::String(inner_schema_string.to_string());
+
+        let children_array = target_node_borrowed_mutably.children.clone();
+        drop(target_node_borrowed_mutably);
+
+        for child_node_reference in children_array {
+            apply_schema_definition_to_tree_node(
+                Rc::clone(&child_node_reference),
+                &inner_schema_value,
+                schema_origin_name_string,
+                Rc::clone(&root_tree_node),
+                loaded_schemas_dictionary,
+                passed_down_declarations_dictionary
+            )?;
+        }
+    } else if simple_type_string.contains("{{") {
+        target_node_borrowed_mutably.field_type = Some("string".to_string());
+        target_node_borrowed_mutably.allowed = true;
+
+        drop(target_node_borrowed_mutably);
+
+        if let Some(resolved_values_array) = resolve_jinja_reference_for_allowed_values_if_applicable(
+            simple_type_string,
+            Rc::clone(&target_tree_node),
+            Rc::clone(&root_tree_node)
+        ) {
+            target_tree_node.borrow_mut().allowed_values = Some(resolved_values_array);
+        }
+    } else {
+        target_node_borrowed_mutably.field_type = Some(simple_type_string.to_string());
+        target_node_borrowed_mutably.allowed = true;
+    }
+    
+    Ok(())
+}
+
+fn apply_sequence_schema(
+    target_tree_node: Rc<RefCell<CoalTree>>,
+    schema_sequence_array: &[Value],
+    schema_origin_name_string: &str,
+    root_tree_node: Rc<RefCell<CoalTree>>,
+    loaded_schemas_dictionary: &HashMap<String, Value>,
+    passed_down_declarations_dictionary: &HashMap<String, Value>
+) -> Result<(), Box<dyn Error>> {
+    let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+
+    let mut all_elements_are_strings_boolean = true;
+    let mut extracted_allowed_values_array = Vec::new();
+
+    for sequence_item_value in schema_sequence_array {
+        if let Value::String(string_value) = sequence_item_value {
+            extracted_allowed_values_array.push(Value::String(string_value.clone()));
+        } else {
+            all_elements_are_strings_boolean = false;
+            break;
+        }
+    }
+
+    if all_elements_are_strings_boolean && !schema_sequence_array.is_empty() {
+        target_node_borrowed_mutably.field_type = Some("string".to_string());
+        target_node_borrowed_mutably.allowed = true;
+        target_node_borrowed_mutably.allowed_values = Some(extracted_allowed_values_array);
+    } else if schema_sequence_array.len() == 1 && schema_sequence_array[0].is_mapping() {
+        target_node_borrowed_mutably.field_type = Some("list".to_string());
+        target_node_borrowed_mutably.allowed = true;
+
+        let inner_mapping_schema_value = &schema_sequence_array[0];
+        let children_array = target_node_borrowed_mutably.children.clone();
+        drop(target_node_borrowed_mutably);
+
+        for child_node_reference in children_array {
+            apply_schema_definition_to_tree_node(
+                Rc::clone(&child_node_reference),
+                inner_mapping_schema_value,
+                schema_origin_name_string,
+                Rc::clone(&root_tree_node),
+                loaded_schemas_dictionary,
+                passed_down_declarations_dictionary
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn apply_mapping_schema(
+    target_tree_node: Rc<RefCell<CoalTree>>,
+    schema_mapping_object: &serde_yaml::Mapping,
+    schema_origin_name_string: &str,
+    root_tree_node: Rc<RefCell<CoalTree>>,
+    loaded_schemas_dictionary: &HashMap<String, Value>,
+    passed_down_declarations_dictionary: &HashMap<String, Value>
+) -> Result<(), Box<dyn Error>> {
+    if let Some(Value::String(use_target_string)) = schema_mapping_object.get(&Value::String("$use".to_string())) {
+        if let Some(declared_subschema_value) = passed_down_declarations_dictionary.get(use_target_string) {
+            return apply_schema_definition_to_tree_node(
+                Rc::clone(&target_tree_node),
+                declared_subschema_value,
+                schema_origin_name_string,
+                Rc::clone(&root_tree_node),
+                loaded_schemas_dictionary,
+                passed_down_declarations_dictionary
+            );
+        }
+    }
+
+    {
+        let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+        target_node_borrowed_mutably.field_type = Some("object".to_string());
+        target_node_borrowed_mutably.allowed = true;
+    }
+
+    let mut allows_any_additional_fields_boolean = false;
+    if schema_mapping_object.contains_key(&Value::String("$any".to_string())) {
+        allows_any_additional_fields_boolean = true;
+    }
+
+    let mut local_declarations_dictionary = passed_down_declarations_dictionary.clone();
+    if let Some(Value::Mapping(declare_mapping_object)) = schema_mapping_object.get(&Value::String("$declare".to_string())) {
+        for (declare_key_value, declare_schema_value) in declare_mapping_object {
+            if let Value::String(declare_key_string) = declare_key_value {
+                local_declarations_dictionary.insert(declare_key_string.clone(), declare_schema_value.clone());
+            }
+        }
+    }
+
+    let optional_fields_array = extract_optional_fields_list_from_schema(schema_mapping_object);
+
+    inject_missing_keys_from_schema_mapping(
+        schema_mapping_object,
+        Rc::clone(&target_tree_node),
+        schema_origin_name_string
+    );
+
+    let current_children_array = {
+        let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+        for child_node_reference in &target_node_borrowed_mutably.children {
+            child_node_reference.borrow_mut().allowed = false;
+        }
+        target_node_borrowed_mutably.children.clone()
+    };
+
+    for child_node_reference in current_children_array {
+        let child_key_option = child_node_reference.borrow().key.clone();
+
+        if let Some(child_key_string) = child_key_option {
+            let schema_key_value = Value::String(child_key_string.clone());
+
+            let mut found_schema_definition_option = schema_mapping_object.get(&schema_key_value);
+            let mut is_optional_boolean = optional_fields_array.contains(&child_key_string);
+
+            if found_schema_definition_option.is_none() {
+                if let Some(Value::Mapping(optional_mapping_object)) = schema_mapping_object.get(&Value::String("$optional".to_string())) {
+                    if let Some(optional_schema_definition) = optional_mapping_object.get(&schema_key_value) {
+                        found_schema_definition_option = Some(optional_schema_definition);
+                        is_optional_boolean = true;
+                    }
+                }
+            }
+
+            if let Some(child_schema_definition) = found_schema_definition_option {
+                apply_schema_definition_to_tree_node(
+                    Rc::clone(&child_node_reference),
+                    child_schema_definition,
+                    schema_origin_name_string,
+                    Rc::clone(&root_tree_node),
+                    loaded_schemas_dictionary,
+                    &local_declarations_dictionary
+                )?;
+
+                let mut child_node_borrowed_mutably = child_node_reference.borrow_mut();
+                if is_optional_boolean {
+                    child_node_borrowed_mutably.optional = true;
+                }
+            } else if allows_any_additional_fields_boolean {
+                if let Some(any_schema_definition) = schema_mapping_object.get(&Value::String("$any".to_string())) {
+                    apply_schema_definition_to_tree_node(
+                        Rc::clone(&child_node_reference),
+                        any_schema_definition,
+                        schema_origin_name_string,
+                        Rc::clone(&root_tree_node),
+                        loaded_schemas_dictionary,
+                        &local_declarations_dictionary
+                    )?;
+                }
+            } else if child_key_string.starts_with('$') {
+                child_node_reference.borrow_mut().allowed = true;
+            }
+        }
+    }
+
+    evaluate_advanced_fields_for_schema_mapping(
+        schema_mapping_object,
+        Rc::clone(&target_tree_node),
+        Rc::clone(&root_tree_node),
+        schema_origin_name_string
+    )?;
+
+    evaluate_conditional_fields_for_schema_mapping(
+        schema_mapping_object,
+        Rc::clone(&target_tree_node),
+        Rc::clone(&root_tree_node),
+        schema_origin_name_string,
+        loaded_schemas_dictionary,
+        &local_declarations_dictionary
+    )?;
 
     Ok(())
 }

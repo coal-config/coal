@@ -91,59 +91,71 @@ pub fn build_tree_from_marked_node(
     match yaml_node {
         Node::Mapping(mapping) => {
             for (key_node, value_node) in mapping.iter() {
-                let mut value = marked_node_to_serde_value(value_node);
-                replace_variables_in_value(&mut value, &file_stem);
-
                 let (line, col) = key_node
                     .span()
                     .start()
                     .map(|m| (m.line(), m.column()))
                     .unwrap_or((1, 1));
-
-                let child_node = Rc::new(RefCell::new(CoalTree {
-                    key: Some(key_node.as_str().to_string()),
-                    value: Some(value),
-                    parent: Some(Rc::downgrade(&parent_node)),
-                    origin: Some(origin_path.to_string()),
-                    span: Some(Span { line, col }),
-                    ..Default::default()
-                }));
-
-                add_or_replace_child_node_in_parent(Rc::clone(&parent_node), Rc::clone(&child_node), false);
-
-                if matches!(value_node, Node::Mapping(_) | Node::Sequence(_)) {
-                    build_tree_from_marked_node(value_node, child_node, origin_path);
-                }
+                
+                process_child_yaml_node(
+                    key_node.as_str().to_string(),
+                    value_node,
+                    &parent_node,
+                    origin_path,
+                    &file_stem,
+                    line,
+                    col,
+                );
             }
         }
         Node::Sequence(sequence) => {
             for (index, item_node) in sequence.iter().enumerate() {
-                let mut value = marked_node_to_serde_value(item_node);
-                replace_variables_in_value(&mut value, &file_stem);
-
                 let (line, col) = item_node
                     .span()
                     .start()
                     .map(|m| (m.line(), m.column()))
                     .unwrap_or((1, 1));
-
-                let child_node = Rc::new(RefCell::new(CoalTree {
-                    key: Some(index.to_string()),
-                    value: Some(value),
-                    parent: Some(Rc::downgrade(&parent_node)),
-                    origin: Some(origin_path.to_string()),
-                    span: Some(Span { line, col }),
-                    ..Default::default()
-                }));
-
-                add_or_replace_child_node_in_parent(Rc::clone(&parent_node), Rc::clone(&child_node), false);
-
-                if matches!(item_node, Node::Mapping(_) | Node::Sequence(_)) {
-                    build_tree_from_marked_node(item_node, child_node, origin_path);
-                }
+                
+                process_child_yaml_node(
+                    index.to_string(),
+                    item_node,
+                    &parent_node,
+                    origin_path,
+                    &file_stem,
+                    line,
+                    col,
+                );
             }
         }
         _ => {}
+    }
+}
+
+fn process_child_yaml_node(
+    key: String,
+    value_node: &Node,
+    parent_node: &Rc<RefCell<CoalTree>>,
+    origin_path: &str,
+    file_stem: &str,
+    line: usize,
+    col: usize,
+) {
+    let mut value = marked_node_to_serde_value(value_node);
+    replace_variables_in_value(&mut value, file_stem);
+
+    let child_node = Rc::new(RefCell::new(CoalTree {
+        key: Some(key),
+        value: Some(value),
+        parent: Some(Rc::downgrade(parent_node)),
+        origin: Some(origin_path.to_string()),
+        span: Some(Span { line, col }),
+        ..Default::default()
+    }));
+
+    add_or_replace_child_node_in_parent(Rc::clone(parent_node), Rc::clone(&child_node), false);
+
+    if matches!(value_node, Node::Mapping(_) | Node::Sequence(_)) {
+        build_tree_from_marked_node(value_node, child_node, origin_path);
     }
 }
 
@@ -153,47 +165,70 @@ pub fn add_or_replace_child_node_in_parent(
     preserve_leaves: bool,
 ) {
     let child_key = new_child_node.borrow().key.clone();
-    let existing_child_option = parent_node
-        .borrow()
-        .children
-        .iter()
-        .find(|child| child.borrow().key == child_key)
-        .cloned();
+    let existing_child_option = find_child_by_key(&parent_node, &child_key);
 
     if let Some(existing_child) = existing_child_option {
-        let existing_is_obj = existing_child.borrow().is_object_type();
-        let new_is_obj = new_child_node.borrow().is_object_type();
-
-        // NEW: Check if the incoming node is injecting system directives ($each, $append, etc.)
-        let new_has_directives = new_child_node.borrow().children.iter().any(|c| {
-            c.borrow().key.as_deref().unwrap_or("").starts_with('$')
-        });
-
-        // Merge if both are objects OR if the new node is dropping directives into an existing list/node
-        if (existing_is_obj && new_is_obj) || new_has_directives {
-            let children_to_transfer = new_child_node.borrow().children.clone();
-            for child in children_to_transfer {
-                child.borrow_mut().parent = Some(Rc::downgrade(&existing_child));
-                add_or_replace_child_node_in_parent(Rc::clone(&existing_child), child, preserve_leaves);
-            }
-            if !preserve_leaves {
-                let new_origin = new_child_node.borrow().origin.clone();
-                if new_origin.is_some() {
-                    existing_child.borrow_mut().origin = new_origin;
-                }
-            }
+        if should_merge_nodes(&existing_child, &new_child_node) {
+            merge_children_into_existing(new_child_node, &existing_child, preserve_leaves);
         } else if !preserve_leaves {
-            let mut parent_borrowed = parent_node.borrow_mut();
-            if let Some(position) = parent_borrowed
-                .children
-                .iter()
-                .position(|child| child.borrow().key == child_key)
-            {
-                parent_borrowed.children[position] = new_child_node;
-            }
+            replace_child_in_parent(&parent_node, new_child_node, &child_key);
         }
     } else {
         parent_node.borrow_mut().children.push(new_child_node);
+    }
+}
+
+fn find_child_by_key(parent_node: &Rc<RefCell<CoalTree>>, key: &Option<String>) -> Option<Rc<RefCell<CoalTree>>> {
+    parent_node
+        .borrow()
+        .children
+        .iter()
+        .find(|child| child.borrow().key == *key)
+        .cloned()
+}
+
+fn should_merge_nodes(existing_node: &Rc<RefCell<CoalTree>>, new_node: &Rc<RefCell<CoalTree>>) -> bool {
+    let existing_is_obj = existing_node.borrow().is_object_type();
+    let new_is_obj = new_node.borrow().is_object_type();
+
+    let new_has_directives = new_node.borrow().children.iter().any(|c| {
+        c.borrow().key.as_deref().unwrap_or("").starts_with('$')
+    });
+
+    (existing_is_obj && new_is_obj) || new_has_directives
+}
+
+fn merge_children_into_existing(
+    source_node: Rc<RefCell<CoalTree>>,
+    target_node: &Rc<RefCell<CoalTree>>,
+    preserve_leaves: bool,
+) {
+    let children_to_transfer = source_node.borrow().children.clone();
+    for child in children_to_transfer {
+        child.borrow_mut().parent = Some(Rc::downgrade(target_node));
+        add_or_replace_child_node_in_parent(Rc::clone(target_node), child, preserve_leaves);
+    }
+    
+    if !preserve_leaves {
+        let new_origin = source_node.borrow().origin.clone();
+        if new_origin.is_some() {
+            target_node.borrow_mut().origin = new_origin;
+        }
+    }
+}
+
+fn replace_child_in_parent(
+    parent_node: &Rc<RefCell<CoalTree>>,
+    new_child_node: Rc<RefCell<CoalTree>>,
+    child_key: &Option<String>,
+) {
+    let mut parent_borrowed = parent_node.borrow_mut();
+    if let Some(position) = parent_borrowed
+        .children
+        .iter()
+        .position(|child| child.borrow().key == *child_key)
+    {
+        parent_borrowed.children[position] = new_child_node;
     }
 }
 
@@ -371,80 +406,114 @@ fn resolve_node_jinja_recursive(
 ) {
     let current_path = node.borrow().get_path();
     if visited.contains(&current_path) {
-        // Prevent infinite loops in case of circular references
         return;
     }
     visited.insert(current_path.clone());
 
-    // 1. Process children first (Depth-First)
-    let children_references = node.borrow().children.clone();
-    for child in children_references {
-        resolve_node_jinja_recursive(child, Rc::clone(&root), visited);
-    }
+    process_jinja_children(&node, &root, visited);
 
-    // 2. Identify if the current node value is a Jinja reference
-    let mut substitution_occurred = false;
-    let node_value_as_string = node.borrow().value.as_ref().and_then(|v| v.as_str()).map(|s| s.to_string());
-
-    if let Some(content_string) = node_value_as_string {
-        if let Some(captures) = get_exact_regex().captures(&content_string) {
-            let reference_path = captures[1].trim();
-            if let Some(target) = find_target_node_using_reference_path(reference_path, Rc::clone(&node), Rc::clone(&root)) {
-
-                let target_path = target.borrow().get_path();
-
-                if !visited.contains(&target_path) {
-                    resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(&root), visited);
-
-                    let (target_value, target_children) = {
-                        let borrowed_target = target.borrow();
-                        (borrowed_target.value.clone(), borrowed_target.children.clone())
-                    };
-
-                    let mut node_mut = node.borrow_mut();
-                    node_mut.value = target_value;
-                    node_mut.children.clear();
-                    drop(node_mut);
-
-                    for child in target_children {
-                        let cloned = clone_tree_node_recursively(child, Rc::clone(&node));
-                        node.borrow_mut().children.push(cloned);
-                    }
-                    substitution_occurred = true;
-                }
-            }
-        } else if get_partial_regex().is_match(&content_string) {
-            // Case B: Partial Match - Replace placeholders within the string
-
-            // NEW: Pre-resolve all target nodes in their native scope before extracting their values
-            let partial_regex = get_partial_regex();
-            for captures in partial_regex.captures_iter(&content_string) {
-                let reference_path = captures[1].trim();
-                if let Some(target) = find_target_node_using_reference_path(
-                    reference_path,
-                    Rc::clone(&node),
-                    Rc::clone(&root)
-                ) {
-                    let target_path = target.borrow().get_path();
-                    if !visited.contains(&target_path) {
-                        resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(&root), visited);
-                    }
-                }
-            }
-
-            // Now that targets are fully resolved, extract their strings
-            let resolved_string = resolve_jinja_reference_string(&content_string, Rc::clone(&node), Rc::clone(&root));
-            if resolved_string != content_string {
-                node.borrow_mut().value = Some(Value::String(resolved_string));
-                substitution_occurred = true;
-            }
-        }
-    }
+    let substitution_occurred = process_jinja_node_value(&node, &root, visited);
 
     visited.remove(&current_path);
     if substitution_occurred {
         resolve_node_jinja_recursive(node, root, visited);
     }
+}
+
+fn process_jinja_children(
+    node: &Rc<RefCell<CoalTree>>,
+    root: &Rc<RefCell<CoalTree>>,
+    visited: &mut std::collections::HashSet<String>,
+) {
+    let children_references = node.borrow().children.clone();
+    for child in children_references {
+        resolve_node_jinja_recursive(child, Rc::clone(root), visited);
+    }
+}
+
+fn process_jinja_node_value(
+    node: &Rc<RefCell<CoalTree>>,
+    root: &Rc<RefCell<CoalTree>>,
+    visited: &mut std::collections::HashSet<String>,
+) -> bool {
+    let node_value_as_string = node.borrow().value.as_ref().and_then(|v| v.as_str()).map(|s| s.to_string());
+
+    if let Some(content_string) = node_value_as_string {
+        if let Some(captures) = get_exact_regex().captures(&content_string) {
+            return process_exact_jinja_match(node, root, visited, &captures[1]);
+        } else if get_partial_regex().is_match(&content_string) {
+            return process_partial_jinja_match(node, root, visited, &content_string);
+        }
+    }
+    false
+}
+
+fn process_exact_jinja_match(
+    node: &Rc<RefCell<CoalTree>>,
+    root: &Rc<RefCell<CoalTree>>,
+    visited: &mut std::collections::HashSet<String>,
+    reference_path: &str,
+) -> bool {
+    let reference_path = reference_path.trim();
+    if let Some(target) = find_target_node_using_reference_path(reference_path, Rc::clone(node), Rc::clone(root)) {
+        let target_path = target.borrow().get_path();
+
+        if !visited.contains(&target_path) {
+            resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(root), visited);
+            apply_target_node_substitution(node, &target);
+            return true;
+        }
+    }
+    false
+}
+
+fn apply_target_node_substitution(
+    node: &Rc<RefCell<CoalTree>>,
+    target: &Rc<RefCell<CoalTree>>,
+) {
+    let (target_value, target_children) = {
+        let borrowed_target = target.borrow();
+        (borrowed_target.value.clone(), borrowed_target.children.clone())
+    };
+
+    let mut node_mut = node.borrow_mut();
+    node_mut.value = target_value;
+    node_mut.children.clear();
+    drop(node_mut);
+
+    for child in target_children {
+        let cloned = clone_tree_node_recursively(child, Rc::clone(node));
+        node.borrow_mut().children.push(cloned);
+    }
+}
+
+fn process_partial_jinja_match(
+    node: &Rc<RefCell<CoalTree>>,
+    root: &Rc<RefCell<CoalTree>>,
+    visited: &mut std::collections::HashSet<String>,
+    content_string: &str,
+) -> bool {
+    let partial_regex = get_partial_regex();
+    for captures in partial_regex.captures_iter(content_string) {
+        let reference_path = captures[1].trim();
+        if let Some(target) = find_target_node_using_reference_path(
+            reference_path,
+            Rc::clone(node),
+            Rc::clone(root)
+        ) {
+            let target_path = target.borrow().get_path();
+            if !visited.contains(&target_path) {
+                resolve_node_jinja_recursive(Rc::clone(&target), Rc::clone(root), visited);
+            }
+        }
+    }
+
+    let resolved_string = resolve_jinja_reference_string(content_string, Rc::clone(node), Rc::clone(root));
+    if resolved_string != content_string {
+        node.borrow_mut().value = Some(Value::String(resolved_string));
+        return true;
+    }
+    false
 }
 
 pub fn strip_system_directives_from_value(value: &mut Value) {
