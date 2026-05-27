@@ -54,7 +54,7 @@ jobs:
           
           # Assuming you use the default cargo-release tag format. 
           # If using release.toml with "coal-v{{version}}", change this to: NEW_TAG="coal-v$NEW_VERSION"
-          NEW_TAG="v$NEW_VERSION"
+          NEW_TAG="coal-v$NEW_VERSION"
           
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
           echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
