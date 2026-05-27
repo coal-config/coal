@@ -8,15 +8,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-// 1. Capture the dynamic release version or fall back to Cargo.toml
-const VERSION: &str = match option_env!("RELEASE_VERSION") {
-    Some(v) => v,
-    None => env!("CARGO_PKG_VERSION"),
-};
-
 #[derive(Parser, Debug)]
-// 2. Pass the VERSION constant explicitly here
-#[command(name = "coal", version = VERSION, about = "Coalescence (COAL) configuration builder and validator", long_about = None)]
+#[command(name = "coal", version, about = "Coalescence (COAL) configuration builder and validator", long_about = None)]
 struct CommandLineArguments {
     #[arg(short = 'v', long = "validate")]
     validate_boolean: bool,
