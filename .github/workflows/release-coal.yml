@@ -80,9 +80,13 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Build COAL CLI
+        env:
+          RELEASE_VERSION: ${{ needs.versioning.outputs.new_version }}
         run: cargo build --release --bin coal --target ${{ matrix.target }}
 
       - name: Build COAL LSP
+        env:
+          RELEASE_VERSION: ${{ needs.versioning.outputs.new_version }}
         run: cargo build --release --bin coal-lsp --target ${{ matrix.target }}
 
       - name: Package Windows
