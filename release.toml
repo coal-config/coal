@@ -1,0 +1,3 @@
+# release.toml
+shared-version = true
+tag-name = "coal-v{{version}}"
