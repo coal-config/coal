@@ -1,8 +1,69 @@
 # Coalescence (COAL)
 
-Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It is designed to take modular, highly dynamic configuration definitions and compile them into a single, fully resolved, and strictly validated configuration tree in the yaml format. It uses yaml based schemas that include data from the tree to validate the entire tree. With built in jinja2 expressions, data within the tree can easily be reused. This allows for a define-it-once philosophy.
+Coalescence (COAL) is a powerful, Rust-based configuration builder and validation engine. It solves the biggest problem with infrastructure-as-code: sprawling, unmaintainable, monolithic YAML files.
+
+COAL allows you to split your configurations into logical, modular directories, organize them exactly how you want, and use powerful inheritance to keep your code strictly DRY (Don't Repeat Yourself). It compiles your modular structure into a single, fully resolved, and strictly validated standard YAML file.
 
 **Why YAML?** Everything in COAL is driven by YAML. YAML was chosen because it is incredibly clear, human-readable, and easy to use. It allows developers and operators to define complex hierarchical structures, references, and logic without the visual clutter of traditional programming languages.
+
+### Quick Install
+```
+curl -sSL https://coal.dev/install | bash
+```
+### 🛑 Before: The Monolithic YAML Nightmare
+Standard YAML forces you to cram everything into massive files, relying on copy-pasting for shared configuration parts between the files. This makes it incredibly hard to read and can cause configuration drift.
+
+`config.yaml`
+```yaml
+environments:
+prod:
+  url: "prod.local"
+  port: 80
+  logging: true
+  database: "postgres"
+dev:
+  url: "dev.local"
+  port: 80
+  logging: true
+  database: "sqlite"
+staging:
+  url: "staging.local"
+  port: 80
+  logging: true
+  database: "postgres"
+```
+
+### ✨ After: Modular Organization & Inheritance with COAL
+COAL lets you split this into a clean directory structure. You define your base configuration once, dynamically include your environment files, and inherit the base settings.
+
+Your File Structure:
+```
+├── main.yaml
+├── base.yaml
+└── envs/
+    ├── prod.yaml (empty file in this example)
+    ├── dev.yaml
+    └── staging.yaml (empty file in this example)
+```
+`base.yaml` Define it once
+```yaml
+port: 80
+logging: true
+database: "postgres"
+```
+`envs/dev.yaml` Only define what changes
+```yaml
+url: "dev.local"
+database: "sqlite" # Overrides base
+```
+`main.yaml` Bring it all together dynamically
+```yaml
+environments:
+  $include_directory: "./envs"
+  $each:
+    $inherit: "ROOT.base"
+```
+Run `coal` and it compiles to the yaml shown in the before example.
 
 ---
 
@@ -36,7 +97,7 @@ With the full structure finalized, COAL synchronizes the raw YAML representation
 
 ### 3. Validation
 
-If validation is enabled, COAL loads all `.schema` or `.yaml` files from the `schema/` directory. It takes the main schema and recursively applies it to the root of the generated tree. This step enforces types, injects default values, evaluates conditional logic, and marks invalid fields. The diagnostics engine then scans the tree and collects any validation errors.
+If validation is enabled, COAL loads the `main.schema` file from the `schema/` directory. It takes the main schema and applies it to the root of the generated tree. This step enforces types, injects default values, evaluates conditional logic, and marks invalid fields. The diagnostics engine then scans the tree and collects any validation errors.
 
 ### 4. Final Cleanup
 
@@ -63,14 +124,12 @@ Parses a specific file and merges its contents into the current node.
 ```yaml
 network:
   $include: "./network.yaml"
-
 ```
 
 **`network.yaml`**
 
 ```yaml
 port: 8080
-
 ```
 
 **`Compiled Output`**
@@ -78,7 +137,6 @@ port: 8080
 ```yaml
 network:
   port: 8080
-
 ```
 
 #### `$include_directory`
@@ -90,21 +148,18 @@ Reads all `.yaml` files within the target directory. Each file is injected as a 
 ```yaml
 environments:
   $include_directory: "./envs"
-
 ```
 
 **`envs/prod.yaml`**
 
 ```yaml
 url: "prod.local"
-
 ```
 
 **`envs/dev.yaml`**
 
 ```yaml
 url: "dev.local"
-
 ```
 
 **`Compiled Output`**
@@ -115,7 +170,6 @@ environments:
     url: "prod.local"
   dev:
     url: "dev.local"
-
 ```
 
 #### `$include_subdirectories`
@@ -127,21 +181,18 @@ Looks at all subdirectories within the target path. If a subdirectory contains a
 ```yaml
 services:
   $include_subdirectories: "./modules"
-
 ```
 
 **`modules/auth/auth.yaml`**
 
 ```yaml
 port: 5000
-
 ```
 
 **`modules/api/api.yaml`**
 
 ```yaml
 port: 8000
-
 ```
 
 **`Compiled Output`**
@@ -152,7 +203,6 @@ services:
     port: 5000
   api:
     port: 8000
-
 ```
 
 ---
@@ -174,7 +224,6 @@ base:
 app:
   $inherit: "ROOT.base"
   port: 8080
-
 ```
 
 **`Compiled Output`**
@@ -185,8 +234,7 @@ base:
   logging: true
 app: 
   port: 8080 # Local port wins
-  logging: true  
-
+  logging: true
 ```
 
 #### `$override`
@@ -202,7 +250,6 @@ app:
   $override: "ROOT.base"
   port: 8080
   logging: true
-
 ```
 
 **`Compiled Output`**
@@ -212,8 +259,7 @@ base:
   port: 80
 app: 
   port: 80 # Base port wins
-  logging: true  
-
+  logging: true
 ```
 
 #### `$each`
@@ -230,7 +276,6 @@ servers:
     ip: "1.1.1.1"
   srv2: 
     ip: "2.2.2.2"
-
 ```
 
 **`Compiled Output`**
@@ -243,7 +288,6 @@ servers:
   srv2: 
     ip: "2.2.2.2"
     status: "active"
-
 ```
 
 #### `$select` and `$keys`
@@ -263,7 +307,6 @@ my_roles:
   $select: "ROOT.available_roles"
   $keys:
     - admin
-
 ```
 
 **`Compiled Output`**
@@ -277,7 +320,6 @@ available_roles:
 my_roles:
   admin: 
     permissions: "all"
-
 ```
 
 ---
@@ -304,7 +346,6 @@ processes:
     process_name: "$parent"
     db_id:
       $id: "db_counters"
-
 ```
 
 **`Compiled Output`**
@@ -317,7 +358,6 @@ processes:
   auth_service:
     process_name: "auth_service"
     db_id: 2
-
 ```
 
 ---
@@ -336,23 +376,20 @@ You can define a field's required type using simple strings: `string`, `integer`
 server_name: string
 ports: [integer]  # Must be a list of integers
 tags: [string]    # Must be a list of strings
-
 ```
-
+##### Valid:
 **`main.yaml`**
 
 ```yaml
 server_name: "prod-01"
 ports: [80, 443]
 tags: ["web", "frontend"]
-
 ```
-
 ---
 
 ### Advanced Schema Directives
 
-#### `$schema`
+#### Schema - `$schema`
 
 Acts as a mixin, deep-merging another schema file from the `schema/` directory into the current location.
 
@@ -361,10 +398,9 @@ Acts as a mixin, deep-merging another schema file from the `schema/` directory i
 ```yaml
 my_server:
   $schema: "server_schema"  # Merges schema/server_schema.yaml
-
 ```
 
-#### `$declare` / `$use`
+#### Declare - `$declare` / `$use`
 
 Defines reusable sub-schemas within the same file.
 
@@ -378,52 +414,59 @@ $declare:
 
 node_1:
   $use: "ip_config"
-
 ```
 
-#### `$any`
+#### Any - `$any`
 
 Permits the object to contain undeclared fields without throwing an error.
 
 **`schema/main.schema`**
 
 ```yaml
-metadata:
-  $any: string  # Allows any key, as long as the value is a string
-
+process:
+  $any: 
+    exec: string
+    args: [string]
 ```
-
+##### Valid:
 **`main.yaml`**
 
 ```yaml
-metadata:
-  custom_tag: "v1.2"
-  owner: "admin"
-
+process:
+  encoder:
+    exec: "/bin/encoder"
+    args: 
+      - "-v"
+  decoder:
+    exec: "/bin/decoder"
+    args: 
+      - "-s"
 ```
 
-#### `$optional`
+#### Optional - `$optional`
 
 A mapping of fields that are permitted but not strictly required. If they are missing, the diagnostics engine will not flag them as errors.
 
 **`schema/main.schema`**
 
 ```yaml
-type: object
 name: string
 $optional:
   description: string
-
 ```
-
+##### Valid:
 **`main.yaml`**
 
 ```yaml
 name: "Server 1"
-# description is omitted, but validation still passes!
-
 ```
+##### Valid:
+**`main.yaml`**
 
+```yaml
+name: "Server 2"
+description: "Valid server"
+```
 ---
 
 ### Advanced one-lines with Jinja Integration
@@ -433,27 +476,68 @@ Allows you to use Jinja2 expressions (`{{ ... }}`) directly inside schemas to us
 **`schema/main.schema`**
 
 ```yaml
-assigned_cluster: "{{ ROOT.clusters }}" # allowed_value for assigned_clusters are the keys of the children of clusters in the configuration tree
+clusters: [string]
+assigned_cluster: "{{ ROOT.clusters }}"
 
 ```
+##### Valid:
+**`main.yaml`**
+```yaml
+clusters: 
+  - "prod"
+  - "staging"
+assigned_cluster: "staging"
+```
 
+##### Invalid:
+**`main.yaml`**
+```yaml
+clusters: 
+  - "prod"
+  - "staging"
+assigned_cluster: "test"
+```
 ---
 
-### Detailed Constraints (`$advanced_fields`) & Jinja Integration
+### Advanced Fields - `$advanced_fields`
 
-Allows you to attach metadata, defaults, and strict constraints to a specific field. You can also use Jinja2 expressions (`{{ ... }}`) directly inside schemas to use your configuration data as validation input.
+Allows you to attach metadata, defaults, and strict constraints to a specific field.
 
 **`schema/main.schema`**
 
 ```yaml
+process: string
 $advanced_fields:
   environment:
     type: string
     default_value: "development"
     allowed_values: ["development", "staging", "production"]
-
 ```
 
+##### Valid:
+**`main.yaml`**
+```yaml
+process: "encoder"
+environment: "staging"
+```
+
+##### Valid:
+**`main.yaml`**
+```yaml
+process: "encoder"
+```
+**`Compiled Output`**
+
+```yaml
+process: "encoder"
+environment: "development"
+```
+##### Invalid:
+**`main.yaml`**
+```yaml
+process: "encoder"
+environment: "test"
+```
 ---
 
 ### Conditional Logic (`$conditional_fields`)
@@ -469,14 +553,12 @@ $conditional_fields:
     $then:
       db_port: integer
       db_password: string
-
 ```
-
+##### Valid:
 **`main.yaml`**
 
 ```yaml
 type: "database"
 db_port: 5432
 db_password: "secure"
-
 ```
