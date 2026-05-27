@@ -8,7 +8,7 @@ COAL allows you to split your configurations into logical, modular directories, 
 
 ### Quick Install
 ```
-curl -sSL https://coal.dev/install | bash
+curl -fsSL https://raw.githubusercontent.com/coal-config/coal/main/install.sh | bash
 ```
 ### 🛑 Before: The Monolithic YAML Nightmare
 Standard YAML forces you to cram everything into massive files, relying on copy-pasting for shared configuration parts between the files. This makes it incredibly hard to read and can cause configuration drift.
