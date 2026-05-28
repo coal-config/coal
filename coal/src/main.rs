@@ -101,7 +101,7 @@ fn print_formatted_yaml_configuration(
         let parts: Vec<&str> = path.split('.').collect();
         let mut target_value = final_yaml_value.clone();
 
-        // 1. Traverse down to the requested nested value
+        // Traverse down to the requested nested value and stop there
         for part in &parts {
             if let serde_yaml::Value::Mapping(map) = target_value {
                 if let Some(next_val) = map.get(&serde_yaml::Value::String(part.to_string())) {
@@ -116,18 +116,8 @@ fn print_formatted_yaml_configuration(
             }
         }
 
-        // 2. Re-wrap the target value backwards to preserve the parent keys
-        let mut wrapped_value = target_value;
-        for part in parts.iter().rev() {
-            let mut new_map = serde_yaml::Mapping::new();
-            new_map.insert(
-                serde_yaml::Value::String(part.to_string()),
-                wrapped_value,
-            );
-            wrapped_value = serde_yaml::Value::Mapping(new_map);
-        }
-        
-        wrapped_value
+        // Return the extracted child node directly without re-wrapping
+        target_value
     } else {
         // Fallback to printing the whole tree if no path is given
         final_yaml_value
