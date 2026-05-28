@@ -16,6 +16,10 @@ struct CommandLineArguments {
 
     #[arg(short = 'a', long = "analyze")]
     analyze_path: Option<String>,
+
+    /// Optional path to print a specific part of the configuration tree (e.g., environments.production)
+    #[arg(index = 1)]
+    print_path: Option<String>,
 }
 
 fn main() {
@@ -30,11 +34,15 @@ fn main() {
     ) {
         Ok((fully_built_root_coal_tree_node, generated_diagnostic_errors_array)) => {
             if let Some(ref path) = parsed_arguments.analyze_path {
-                analyze_target_path(path, fully_built_root_coal_tree_node);
+                analyze_target_path(path, Rc::clone(&fully_built_root_coal_tree_node));
                 return;
             }
 
-            print_formatted_yaml_configuration(Rc::clone(&fully_built_root_coal_tree_node));
+            // Pass the optional print path down to the formatting function
+            print_formatted_yaml_configuration(
+                Rc::clone(&fully_built_root_coal_tree_node),
+                parsed_arguments.print_path.as_deref(),
+            );
 
             if parsed_arguments.validate_boolean {
                 process_and_display_validation_diagnostics(generated_diagnostic_errors_array);
@@ -83,9 +91,49 @@ fn display_analyzed_node_details(path: &str, node: Rc<RefCell<CoalTree>>) {
     }
 }
 
-fn print_formatted_yaml_configuration(fully_built_root_coal_tree_node: Rc<RefCell<CoalTree>>) {
+fn print_formatted_yaml_configuration(
+    fully_built_root_coal_tree_node: Rc<RefCell<CoalTree>>,
+    print_path: Option<&str>,
+) {
     let final_yaml_value = tree_to_yaml(fully_built_root_coal_tree_node);
-    let formatted_yaml_string = serde_yaml::to_string(&final_yaml_value).unwrap();
+
+    let value_to_print = if let Some(path) = print_path {
+        let parts: Vec<&str> = path.split('.').collect();
+        let mut target_value = final_yaml_value.clone();
+
+        // 1. Traverse down to the requested nested value
+        for part in &parts {
+            if let serde_yaml::Value::Mapping(map) = target_value {
+                if let Some(next_val) = map.get(&serde_yaml::Value::String(part.to_string())) {
+                    target_value = next_val.clone();
+                } else {
+                    eprintln!("Error: Path '{}' not found for printing.", path);
+                    std::process::exit(1);
+                }
+            } else {
+                eprintln!("Error: Path '{}' not found for printing.", path);
+                std::process::exit(1);
+            }
+        }
+
+        // 2. Re-wrap the target value backwards to preserve the parent keys
+        let mut wrapped_value = target_value;
+        for part in parts.iter().rev() {
+            let mut new_map = serde_yaml::Mapping::new();
+            new_map.insert(
+                serde_yaml::Value::String(part.to_string()),
+                wrapped_value,
+            );
+            wrapped_value = serde_yaml::Value::Mapping(new_map);
+        }
+        
+        wrapped_value
+    } else {
+        // Fallback to printing the whole tree if no path is given
+        final_yaml_value
+    };
+
+    let formatted_yaml_string = serde_yaml::to_string(&value_to_print).unwrap();
     println!("{}", formatted_yaml_string);
 }
 
