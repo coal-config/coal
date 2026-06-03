@@ -4,13 +4,13 @@ use crate::shared_logic::{
     extract_string_array_from_yaml_value, find_target_node_using_reference_path,
     resolve_jinja_reference_string,
 };
-use std::cell::RefCell;
+use crate::type_aliases::{TreeRef, new_tree_ref};
 use std::error::Error;
 use std::rc::Rc;
 
 pub fn process_abstract_syntax_tree_functions_depth_first(
-    current_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    current_tree_node: TreeRef,
+    root_tree_node: TreeRef,
     id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
 
@@ -36,7 +36,7 @@ pub fn process_abstract_syntax_tree_functions_depth_first(
     Ok(())
 }
 
-fn resolve_parent_for_node(node: Rc<RefCell<CoalTree>>) {
+fn resolve_parent_for_node(node: TreeRef) {
     let mut borrowed = node.borrow_mut();
     if let Some(serde_yaml::Value::String(s)) = &borrowed.value {
         if s.contains("$parent") {
@@ -50,8 +50,8 @@ fn resolve_parent_for_node(node: Rc<RefCell<CoalTree>>) {
 }
 
 fn resolve_id_for_node(
-    node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
+    node: TreeRef,
+    root_node: TreeRef,
     counters: &mut std::collections::HashMap<String, i64>
 ) {
     let mut id_key_to_process = None;
@@ -81,7 +81,7 @@ fn resolve_id_for_node(
     }
 }
 
-fn identify_next_directive(parent: &Rc<RefCell<CoalTree>>) -> Option<Rc<RefCell<CoalTree>>> {
+fn identify_next_directive(parent: &TreeRef) -> Option<TreeRef> {
     let children = parent.borrow().children.clone();
     let mut each_node = None;
 
@@ -98,9 +98,9 @@ fn identify_next_directive(parent: &Rc<RefCell<CoalTree>>) -> Option<Rc<RefCell<
 }
 
 fn execute_directive(
-    directive: Rc<RefCell<CoalTree>>,
-    parent: Rc<RefCell<CoalTree>>,
-    root: Rc<RefCell<CoalTree>>,
+    directive: TreeRef,
+    parent: TreeRef,
+    root: TreeRef,
     id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let directive_key = directive.borrow().key.clone().unwrap();
@@ -117,9 +117,9 @@ fn execute_directive(
 }
 
 fn handle_select_node(
-    directive_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
+    directive_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
 ) -> Result<(), Box<dyn Error>> {
     let target_path_raw = match &directive_node.borrow().value {
         Some(serde_yaml::Value::String(s)) => s.clone(),
@@ -142,7 +142,7 @@ fn handle_select_node(
     Ok(())
 }
 
-fn extract_keys_to_select(parent_node: &Rc<RefCell<CoalTree>>) -> (Vec<(String, Option<crate::coal_tree::Span>, Option<String>)>, Option<Rc<RefCell<CoalTree>>>) {
+fn extract_keys_to_select(parent_node: &TreeRef) -> (Vec<(String, Option<crate::coal_tree::Span>, Option<String>)>, Option<TreeRef>) {
     let mut keys_to_select = Vec::new();
     let mut keys_node_to_remove = None;
 
@@ -165,8 +165,8 @@ fn extract_keys_to_select(parent_node: &Rc<RefCell<CoalTree>>) -> (Vec<(String, 
 
 fn map_keys_to_targets(
     keys_to_select: Vec<(String, Option<crate::coal_tree::Span>, Option<String>)>,
-    target_node_opt: Option<Rc<RefCell<CoalTree>>>,
-) -> Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<Rc<RefCell<CoalTree>>>)> {
+    target_node_opt: Option<TreeRef>,
+) -> Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<TreeRef>)> {
     let mut transformations = Vec::new();
 
     if let Some(target_node) = target_node_opt {
@@ -188,18 +188,18 @@ fn map_keys_to_targets(
 }
 
 fn generate_selected_children(
-    transformations: Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<Rc<RefCell<CoalTree>>>)>,
-    parent_node: &Rc<RefCell<CoalTree>>,
+    transformations: Vec<(String, Option<crate::coal_tree::Span>, Option<String>, Option<TreeRef>)>,
+    parent_node: &TreeRef,
 ) {
     for (new_key, span, origin, source_child_opt) in transformations {
-        let new_child = Rc::new(RefCell::new(CoalTree {
+        let new_child = new_tree_ref(CoalTree {
             key: Some(new_key.clone()),
             parent: Some(Rc::downgrade(parent_node)),
             allowed: true,
             span,
             origin,
             ..Default::default()
-        }));
+        });
 
         if let Some(source_child) = source_child_opt {
             let source_borrowed = source_child.borrow();
@@ -220,8 +220,8 @@ fn generate_selected_children(
 }
 
 fn handle_append_node(
-    directive_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
+    directive_node: TreeRef,
+    parent_node: TreeRef,
 ) -> Result<(), Box<dyn Error>> {
     let target_children = directive_node.borrow().children.clone();
     for child in target_children {
@@ -233,9 +233,9 @@ fn handle_append_node(
 }
 
 fn handle_extend_node(
-    directive_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
+    directive_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
 ) -> Result<(), Box<dyn Error>> {
     let raw_value = directive_node.borrow().value.clone();
 
@@ -256,8 +256,8 @@ fn handle_extend_node(
     Ok(())
 }
 
-fn reindex_parent_list(parent_node: Rc<RefCell<CoalTree>>) {
-    let mut parent_borrowed = parent_node.borrow_mut();
+fn reindex_parent_list(parent_node: TreeRef) {
+    let parent_borrowed = parent_node.borrow_mut();
     let mut current_index = 0;
 
     for child in parent_borrowed.children.iter() {
@@ -270,9 +270,9 @@ fn reindex_parent_list(parent_node: Rc<RefCell<CoalTree>>) {
 }
 
 fn handle_inherit_node(
-    directive_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
+    directive_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
     is_override: bool,
     id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
@@ -298,8 +298,8 @@ fn handle_inherit_node(
 }
 
 fn handle_each_node(
-    directive: Rc<RefCell<CoalTree>>,
-    parent: Rc<RefCell<CoalTree>>,
+    directive: TreeRef,
+    parent: TreeRef,
 ) -> Result<(), Box<dyn Error>> {
     let templates = directive.borrow().children.clone();
     let siblings = parent.borrow().children.clone();
@@ -314,7 +314,7 @@ fn handle_each_node(
     Ok(())
 }
 
-fn apply_children_to_parent(source: Rc<RefCell<CoalTree>>, parent: Rc<RefCell<CoalTree>>, is_override: bool) {
+fn apply_children_to_parent(source: TreeRef, parent: TreeRef, is_override: bool) {
     let children = source.borrow().children.clone();
     for child in children {
         let cloned = clone_tree_node_recursively(child, Rc::clone(&parent));
@@ -322,7 +322,7 @@ fn apply_children_to_parent(source: Rc<RefCell<CoalTree>>, parent: Rc<RefCell<Co
     }
 }
 
-fn create_processing_ghost(target: Rc<RefCell<CoalTree>>, root: &Rc<RefCell<CoalTree>>) -> Rc<RefCell<CoalTree>> {
+fn create_processing_ghost(target: TreeRef, root: &TreeRef) -> TreeRef {
     let parent = target.borrow().parent.as_ref().and_then(|w| w.upgrade()).unwrap_or_else(|| Rc::clone(root));
     clone_tree_node_recursively(target, parent)
 }

@@ -1,3 +1,4 @@
+use crate::type_aliases::TreeRef;
 use serde_yaml::{Mapping, Value};
 use std::cell::RefCell;
 use std::rc::{Rc, Weak};
@@ -20,7 +21,7 @@ pub struct CoalTree {
     pub default_value: Option<Value>,
     pub allowed_values: Option<Vec<Value>>,
     pub allowed: bool,
-    pub children: Vec<Rc<RefCell<CoalTree>>>,
+    pub children: Vec<TreeRef>,
     pub span: Option<Span>,
 }
 
@@ -68,7 +69,7 @@ impl CoalTree {
         path_elements
     }
 
-    fn get_parent_rc(&self) -> Option<Rc<RefCell<CoalTree>>> {
+    fn get_parent_rc(&self) -> Option<TreeRef> {
         self.parent.as_ref().and_then(|weak| weak.upgrade())
     }
 
@@ -110,7 +111,7 @@ impl CoalTree {
     }
 }
 
-pub fn tree_to_yaml(current_tree_node: Rc<RefCell<CoalTree>>) -> Value {
+pub fn tree_to_yaml(current_tree_node: TreeRef) -> Value {
     let node_borrowed = current_tree_node.borrow();
 
     if node_borrowed.children.is_empty() {
@@ -128,14 +129,14 @@ fn get_node_value(node: &CoalTree) -> Value {
     node.value.clone().unwrap_or(Value::Null)
 }
 
-fn convert_children_to_sequence(children: &[Rc<RefCell<CoalTree>>]) -> Value {
+fn convert_children_to_sequence(children: &[TreeRef]) -> Value {
     let sequence = children.iter()
         .map(|child| tree_to_yaml(Rc::clone(child)))
         .collect();
     Value::Sequence(sequence)
 }
 
-fn convert_children_to_mapping(children: &[Rc<RefCell<CoalTree>>]) -> Value {
+fn convert_children_to_mapping(children: &[TreeRef]) -> Value {
     let mut mapping = Mapping::new();
     for child in children {
         if let Some(ref key) = child.borrow().key {

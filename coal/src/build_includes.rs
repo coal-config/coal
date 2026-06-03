@@ -3,19 +3,20 @@ use crate::shared_logic::{
     add_or_replace_child_node_in_parent, build_tree_from_marked_node,
     extract_string_array_from_yaml_value, marked_node_to_serde_value, resolve_jinja_reference_string,
 };
-use crate::vfs::{normalize_path, VirtualFileSystem};
+use crate::type_aliases::{VfsRef, TreeRef, new_tree_ref};
+use crate::vfs::normalize_path;
 use std::cell::RefCell;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Traverses the CoalTree depth-first and processes special include directives.
 pub fn process_all_include_functions_depth_first(
-    current_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    current_tree_node: TreeRef,
+    root_tree_node: TreeRef,
+    vfs: VfsRef,
 ) -> Result<(), Box<dyn Error>> {
     let children_references = current_tree_node.borrow().children.clone();
     let mut children_marked_for_removal = Vec::new();
@@ -46,10 +47,10 @@ pub fn process_all_include_functions_depth_first(
 
 /// Identifies if a node is a directive and routes it to the appropriate handler.
 fn process_single_node_directive(
-    node: Rc<RefCell<CoalTree>>,
-    parent: Rc<RefCell<CoalTree>>,
-    root: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    node: TreeRef,
+    parent: TreeRef,
+    root: TreeRef,
+    vfs: VfsRef,
 ) -> Result<bool, Box<dyn Error>> {
     let node_key = node.borrow().key.clone();
     let key_string = match node_key {
@@ -75,10 +76,10 @@ fn process_single_node_directive(
 // --- Specialized Handlers ---
 
 fn handle_standard_file_include(
-    include_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    include_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
+    vfs: VfsRef,
     is_optional: bool,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
@@ -101,10 +102,10 @@ fn handle_standard_file_include(
 }
 
 fn handle_directory_include(
-    include_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    include_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
+    vfs: VfsRef,
     is_optional: bool,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
@@ -132,10 +133,10 @@ fn handle_directory_include(
 }
 
 fn handle_subdirectories_include(
-    include_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    include_node: TreeRef,
+    parent_node: TreeRef,
+    root_node: TreeRef,
+    vfs: VfsRef,
     is_optional: bool,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
@@ -169,7 +170,7 @@ fn handle_subdirectories_include(
 // --- Helper Logic Functions ---
 
 fn read_file_from_vfs(
-    vfs: &Arc<Mutex<VirtualFileSystem>>,
+    vfs: &VfsRef,
     path: &str,
     is_optional: bool,
 ) -> Result<Option<String>, Box<dyn Error>> {
@@ -201,9 +202,9 @@ fn read_directory_optional(
 fn process_and_integrate_yaml_file(
     content: &str,
     file_path: &str,
-    parent: Rc<RefCell<CoalTree>>,
-    root: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    parent: TreeRef,
+    root: TreeRef,
+    vfs: VfsRef,
 ) -> Result<(), Box<dyn Error>> {
     let temporary_root = parse_and_build_tree_node(content, file_path, "TEMPORARY_ROOT".to_string(), Rc::clone(&parent))?;
 
@@ -214,8 +215,8 @@ fn process_and_integrate_yaml_file(
 }
 
 fn merge_temporary_tree_into_parent(
-    temporary_root: Rc<RefCell<CoalTree>>,
-    parent: Rc<RefCell<CoalTree>>,
+    temporary_root: TreeRef,
+    parent: TreeRef,
 ) {
     let temp_children = temporary_root.borrow().children.clone();
 
@@ -250,9 +251,9 @@ fn get_next_list_index(node: &Rc<RefCell<CoalTree>>) -> usize {
 fn process_named_child_file(
     path: &Path,
     key_name: String,
-    parent: Rc<RefCell<CoalTree>>,
-    root: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    parent: TreeRef,
+    root: TreeRef,
+    vfs: VfsRef,
 ) -> Result<(), Box<dyn Error>> {
     let file_path_string = normalize_path(path.to_str().unwrap());
     let content = vfs.lock().unwrap().get_file_content(&file_path_string)?;
@@ -269,18 +270,18 @@ fn parse_and_build_tree_node(
     content: &str,
     file_path: &str,
     key_name: String,
-    parent: Rc<RefCell<CoalTree>>,
-) -> Result<Rc<RefCell<CoalTree>>, Box<dyn Error>> {
+    parent: TreeRef,
+) -> Result<TreeRef, Box<dyn Error>> {
     let marked_node = marked_yaml::parse_yaml(0, content)
         .map_err(|e| format!("YAML Parse Error in '{}': {}", file_path, e))?;
 
-    let node = Rc::new(RefCell::new(CoalTree {
+    let node = new_tree_ref(CoalTree {
         key: Some(key_name),
         value: Some(marked_node_to_serde_value(&marked_node)),
         parent: Some(Rc::downgrade(&parent)),
         origin: Some(file_path.to_string()),
         ..Default::default()
-    }));
+    });
 
     build_tree_from_marked_node(&marked_node, Rc::clone(&node), file_path);
     Ok(node)
@@ -322,8 +323,8 @@ fn get_paths_from_node(node: &Rc<RefCell<CoalTree>>) -> Vec<String> {
 }
 
 fn remove_processed_children(
-    parent: Rc<RefCell<CoalTree>>,
-    to_remove: Vec<Rc<RefCell<CoalTree>>>,
+    parent: TreeRef,
+    to_remove: Vec<TreeRef>,
 ) {
     if !to_remove.is_empty() {
         parent.borrow_mut().children.retain(|existing_child| {

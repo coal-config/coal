@@ -1,12 +1,12 @@
 use clap::Parser;
-use coal::coal_tree::{tree_to_yaml, CoalTree};
+use coal::coal_tree::tree_to_yaml;
 use coal::diagnostics::DiagnosticError;
 use coal::shared_logic::find_target_node_using_reference_path;
 use coal::tree_builder::build_entire_coal_configuration_tree;
+use coal::type_aliases::{new_vfs_ref, TreeRef};
 use coal::vfs::VirtualFileSystem;
-use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Parser, Debug)]
 #[command(name = "coal", version, about = "Coalescence (COAL) configuration builder and validator", long_about = None)]
@@ -24,7 +24,7 @@ struct CommandLineArguments {
 
 fn main() {
     let parsed_arguments = CommandLineArguments::parse();
-    let vfs = Arc::new(Mutex::new(VirtualFileSystem::new()));
+    let vfs = new_vfs_ref(VirtualFileSystem::new());
 
     match build_entire_coal_configuration_tree(
         "main.yaml",
@@ -54,7 +54,7 @@ fn main() {
     }
 }
 
-fn analyze_target_path(path: &str, fully_built_root_coal_tree_node: Rc<RefCell<CoalTree>>) {
+fn analyze_target_path(path: &str, fully_built_root_coal_tree_node: TreeRef) {
     let formatted_path = if path.starts_with("ROOT.") {
         path.to_string()
     } else {
@@ -72,7 +72,7 @@ fn analyze_target_path(path: &str, fully_built_root_coal_tree_node: Rc<RefCell<C
     }
 }
 
-fn display_analyzed_node_details(path: &str, node: Rc<RefCell<CoalTree>>) {
+fn display_analyzed_node_details(path: &str, node: TreeRef) {
     let borrowed_node = node.borrow();
     println!("--- Field Analysis: {} ---", path);
     println!("Key:              {:?}", borrowed_node.key);
@@ -92,7 +92,7 @@ fn display_analyzed_node_details(path: &str, node: Rc<RefCell<CoalTree>>) {
 }
 
 fn print_formatted_yaml_configuration(
-    fully_built_root_coal_tree_node: Rc<RefCell<CoalTree>>,
+    fully_built_root_coal_tree_node: TreeRef,
     print_path: Option<&str>,
 ) {
     let final_yaml_value = tree_to_yaml(fully_built_root_coal_tree_node);

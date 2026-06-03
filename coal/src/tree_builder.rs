@@ -8,19 +8,18 @@ use crate::shared_logic::{
     resolve_all_jinja_values_in_tree, synchronize_node_values_depth_first, clean_up_system_directives,
     prune_empty_mapping_nodes
 };
-use crate::vfs::VirtualFileSystem;
-use std::cell::RefCell;
+use crate::type_aliases::{VfsRef, TreeRef, new_tree_ref};
 use std::collections::HashMap;
 use std::error::Error;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 pub fn build_entire_coal_configuration_tree(
     entry_path: &str,
     schema_directory_path: &str,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    vfs: VfsRef,
     validate: bool,
-) -> Result<(Rc<RefCell<CoalTree>>, Vec<DiagnosticError>), Box<dyn Error>> {
+) -> Result<(TreeRef, Vec<DiagnosticError>), Box<dyn Error>> {
     let root = parse_initial_root(entry_path, Arc::clone(&vfs))?;
 
     // Phase 1: Expansion (Includes)
@@ -50,8 +49,8 @@ pub fn build_entire_coal_configuration_tree(
 }
 
 fn execute_validation_pipeline(
-    root: Rc<RefCell<CoalTree>>,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    root: TreeRef,
+    vfs: VfsRef,
     schema_dir_path: &str,
     errors: &mut Vec<DiagnosticError>
 ) -> Result<(), Box<dyn Error>> {
@@ -63,18 +62,18 @@ fn execute_validation_pipeline(
     Ok(())
 }
 
-fn parse_initial_root(path: &str, vfs: Arc<Mutex<VirtualFileSystem>>) -> Result<Rc<RefCell<CoalTree>>, Box<dyn Error>> {
+fn parse_initial_root(path: &str, vfs: VfsRef) -> Result<TreeRef, Box<dyn Error>> {
     let content = vfs.lock().unwrap().get_file_content(path)?;
     let marked = marked_yaml::parse_yaml(0, &content)
         .map_err(|e| format!("YAML Parse Error in '{}': {}", path, e))?;
 
-    let root = Rc::new(RefCell::new(CoalTree {
+    let root = new_tree_ref(CoalTree {
         key: Some("ROOT".to_string()),
         value: Some(marked_node_to_serde_value(&marked)),
         origin: Some(path.to_string()),
         span: Some(Span { line: 1, col: 1 }),
         ..Default::default()
-    }));
+    });
 
     build_tree_from_marked_node(&marked, Rc::clone(&root), path);
     Ok(root)

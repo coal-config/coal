@@ -1,15 +1,14 @@
 use crate::coal_tree::CoalTree;
 use crate::shared_logic::{find_target_node_using_reference_path, deep_merge_yaml_values};
-use crate::vfs::VirtualFileSystem;
+use crate::type_aliases::{VfsRef, TreeRef, new_tree_ref};
 use regex::Regex;
 use serde_yaml::Value;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::OnceLock;
 
 static REGEX_JINJA_ALLOWED: OnceLock<Regex> = OnceLock::new();
 
@@ -19,7 +18,7 @@ fn get_jinja_regex() -> &'static Regex {
 
 pub fn load_all_schema_files_from_directory(
     schemas_directory_path_string: &str,
-    vfs: Arc<Mutex<VirtualFileSystem>>,
+    vfs: VfsRef,
 ) -> Result<HashMap<String, Value>, Box<dyn Error>> {
     let mut raw_schemas_dictionary = HashMap::new();
     let directory_path_object = Path::new(schemas_directory_path_string);
@@ -101,10 +100,10 @@ fn resolve_all_schema_mixins_recursively(
 }
 
 pub fn apply_schema_definition_to_tree_node(
-    target_tree_node: Rc<RefCell<CoalTree>>,
+    target_tree_node: TreeRef,
     schema_definition_value: &Value,
     schema_origin_name_string: &str,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    root_tree_node: TreeRef,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>
 ) -> Result<(), Box<dyn Error>> {
@@ -147,10 +146,10 @@ pub fn apply_schema_definition_to_tree_node(
 }
 
 fn apply_string_schema(
-    target_tree_node: Rc<RefCell<CoalTree>>,
+    target_tree_node: TreeRef,
     simple_type_string: &str,
     schema_origin_name_string: &str,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    root_tree_node: TreeRef,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>
 ) -> Result<(), Box<dyn Error>> {
@@ -198,10 +197,10 @@ fn apply_string_schema(
 }
 
 fn apply_sequence_schema(
-    target_tree_node: Rc<RefCell<CoalTree>>,
+    target_tree_node: TreeRef,
     schema_sequence_array: &[Value],
     schema_origin_name_string: &str,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    root_tree_node: TreeRef,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>
 ) -> Result<(), Box<dyn Error>> {
@@ -247,10 +246,10 @@ fn apply_sequence_schema(
 }
 
 fn apply_mapping_schema(
-    target_tree_node: Rc<RefCell<CoalTree>>,
+    target_tree_node: TreeRef,
     schema_mapping_object: &serde_yaml::Mapping,
     schema_origin_name_string: &str,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    root_tree_node: TreeRef,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>
 ) -> Result<(), Box<dyn Error>> {
@@ -296,7 +295,7 @@ fn apply_mapping_schema(
     );
 
     let current_children_array = {
-        let mut target_node_borrowed_mutably = target_tree_node.borrow_mut();
+        let target_node_borrowed_mutably = target_tree_node.borrow_mut();
         for child_node_reference in &target_node_borrowed_mutably.children {
             child_node_reference.borrow_mut().allowed = false;
         }
@@ -373,7 +372,7 @@ fn apply_mapping_schema(
 
 fn inject_missing_keys_from_schema_mapping(
     schema_mapping_object: &serde_yaml::Mapping,
-    target_tree_node: Rc<RefCell<CoalTree>>,
+    target_tree_node: TreeRef,
     schema_origin_name_string: &str,
 ) {
     let mut expected_keys_array = Vec::new();
@@ -406,7 +405,7 @@ fn inject_missing_keys_from_schema_mapping(
 
     for expected_key_string in expected_keys_array {
         if !existing_keys_array.contains(&expected_key_string) {
-            let missing_child_tree_node = Rc::new(RefCell::new(CoalTree {
+            let missing_child_tree_node = new_tree_ref(CoalTree {
                 key: Some(expected_key_string.clone()),
                 value: None,
                 parent: Some(Rc::downgrade(&target_tree_node)),
@@ -416,7 +415,7 @@ fn inject_missing_keys_from_schema_mapping(
                 allowed: true,
                 span: parent_span.clone(),
                 ..Default::default()
-            }));
+            });
             target_node_borrowed_mutably.children.push(Rc::clone(&missing_child_tree_node));
         }
     }
@@ -436,8 +435,8 @@ fn extract_optional_fields_list_from_schema(schema_mapping_object: &serde_yaml::
 
 fn evaluate_advanced_fields_for_schema_mapping(
     schema_mapping_object: &serde_yaml::Mapping,
-    parent_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    parent_tree_node: TreeRef,
+    root_tree_node: TreeRef,
     schema_origin_name_string: &str
 ) -> Result<(), Box<dyn Error>> {
     if let Some(Value::Mapping(advanced_fields_mapping)) = schema_mapping_object.get(&Value::String("$advanced_fields".to_string())) {
@@ -494,8 +493,8 @@ fn evaluate_advanced_fields_for_schema_mapping(
 
 fn resolve_jinja_reference_for_allowed_values_if_applicable(
     potential_jinja_string: &str,
-    current_context_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>
+    current_context_tree_node: TreeRef,
+    root_tree_node: TreeRef
 ) -> Option<Vec<Value>> {
     let regex_pattern = get_jinja_regex();
 
@@ -557,8 +556,8 @@ fn resolve_jinja_reference_for_allowed_values_if_applicable(
 
 fn evaluate_conditional_fields_for_schema_mapping(
     schema_mapping_object: &serde_yaml::Mapping,
-    parent_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    parent_tree_node: TreeRef,
+    root_tree_node: TreeRef,
     schema_origin_name_string: &str,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>
@@ -596,7 +595,7 @@ fn evaluate_conditional_fields_for_schema_mapping(
 
 fn evaluate_logical_condition_block_recursively(
     condition_value_object: &Value,
-    parent_tree_node: Rc<RefCell<CoalTree>>
+    parent_tree_node: TreeRef
 ) -> bool {
     match condition_value_object {
         Value::Sequence(condition_sequence_array) => {
@@ -661,8 +660,8 @@ fn evaluate_logical_condition_block_recursively(
 
 fn apply_conditional_then_block_to_tree_node(
     then_mapping_object: &serde_yaml::Mapping,
-    parent_tree_node: Rc<RefCell<CoalTree>>,
-    root_tree_node: Rc<RefCell<CoalTree>>,
+    parent_tree_node: TreeRef,
+    root_tree_node: TreeRef,
     schema_origin_name_string: &str,
     loaded_schemas_dictionary: &HashMap<String, Value>,
     passed_down_declarations_dictionary: &HashMap<String, Value>

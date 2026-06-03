@@ -1,8 +1,8 @@
 use crate::coal_tree::{CoalTree, Span};
+use crate::type_aliases::{TreeRef, new_tree_ref};
 use marked_yaml::Node;
 use regex::Regex;
 use serde_yaml::Value;
-use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::OnceLock;
@@ -79,7 +79,7 @@ pub fn replace_variables_in_value(value: &mut Value, stem: &str) {
 
 pub fn build_tree_from_marked_node(
     yaml_node: &Node,
-    parent_node: Rc<RefCell<CoalTree>>,
+    parent_node: TreeRef,
     origin_path: &str,
 ) {
     let file_stem = Path::new(origin_path)
@@ -134,7 +134,7 @@ pub fn build_tree_from_marked_node(
 fn process_child_yaml_node(
     key: String,
     value_node: &Node,
-    parent_node: &Rc<RefCell<CoalTree>>,
+    parent_node: &TreeRef,
     origin_path: &str,
     file_stem: &str,
     line: usize,
@@ -143,14 +143,14 @@ fn process_child_yaml_node(
     let mut value = marked_node_to_serde_value(value_node);
     replace_variables_in_value(&mut value, file_stem);
 
-    let child_node = Rc::new(RefCell::new(CoalTree {
+    let child_node = new_tree_ref(CoalTree {
         key: Some(key),
         value: Some(value),
         parent: Some(Rc::downgrade(parent_node)),
         origin: Some(origin_path.to_string()),
         span: Some(Span { line, col }),
         ..Default::default()
-    }));
+    });
 
     add_or_replace_child_node_in_parent(Rc::clone(parent_node), Rc::clone(&child_node), false);
 
@@ -160,8 +160,8 @@ fn process_child_yaml_node(
 }
 
 pub fn add_or_replace_child_node_in_parent(
-    parent_node: Rc<RefCell<CoalTree>>,
-    new_child_node: Rc<RefCell<CoalTree>>,
+    parent_node: TreeRef,
+    new_child_node: TreeRef,
     preserve_leaves: bool,
 ) {
     let child_key = new_child_node.borrow().key.clone();
@@ -178,7 +178,7 @@ pub fn add_or_replace_child_node_in_parent(
     }
 }
 
-fn find_child_by_key(parent_node: &Rc<RefCell<CoalTree>>, key: &Option<String>) -> Option<Rc<RefCell<CoalTree>>> {
+fn find_child_by_key(parent_node: &TreeRef, key: &Option<String>) -> Option<TreeRef> {
     parent_node
         .borrow()
         .children
@@ -187,7 +187,7 @@ fn find_child_by_key(parent_node: &Rc<RefCell<CoalTree>>, key: &Option<String>) 
         .cloned()
 }
 
-fn should_merge_nodes(existing_node: &Rc<RefCell<CoalTree>>, new_node: &Rc<RefCell<CoalTree>>) -> bool {
+fn should_merge_nodes(existing_node: &TreeRef, new_node: &TreeRef) -> bool {
     let existing_is_obj = existing_node.borrow().is_object_type();
     let new_is_obj = new_node.borrow().is_object_type();
 
@@ -199,8 +199,8 @@ fn should_merge_nodes(existing_node: &Rc<RefCell<CoalTree>>, new_node: &Rc<RefCe
 }
 
 fn merge_children_into_existing(
-    source_node: Rc<RefCell<CoalTree>>,
-    target_node: &Rc<RefCell<CoalTree>>,
+    source_node: TreeRef,
+    target_node: &TreeRef,
     preserve_leaves: bool,
 ) {
     let children_to_transfer = source_node.borrow().children.clone();
@@ -218,8 +218,8 @@ fn merge_children_into_existing(
 }
 
 fn replace_child_in_parent(
-    parent_node: &Rc<RefCell<CoalTree>>,
-    new_child_node: Rc<RefCell<CoalTree>>,
+    parent_node: &TreeRef,
+    new_child_node: TreeRef,
     child_key: &Option<String>,
 ) {
     let mut parent_borrowed = parent_node.borrow_mut();
@@ -233,11 +233,11 @@ fn replace_child_in_parent(
 }
 
 pub fn clone_tree_node_recursively(
-    source_node: Rc<RefCell<CoalTree>>,
-    parent_node: Rc<RefCell<CoalTree>>,
-) -> Rc<RefCell<CoalTree>> {
+    source_node: TreeRef,
+    parent_node: TreeRef,
+) -> TreeRef {
     let source = source_node.borrow();
-    let cloned_node = Rc::new(RefCell::new(CoalTree {
+    let cloned_node = new_tree_ref(CoalTree {
         key: source.key.clone(),
         value: source.value.clone(),
         parent: Some(Rc::downgrade(&parent_node)),
@@ -250,7 +250,7 @@ pub fn clone_tree_node_recursively(
         allowed: source.allowed,
         children: Vec::new(),
         span: source.span.clone(),
-    }));
+    });
 
     for child in &source.children {
         let cloned_child = clone_tree_node_recursively(Rc::clone(child), Rc::clone(&cloned_node));
@@ -265,9 +265,9 @@ pub fn clone_tree_node_recursively(
 
 pub fn find_target_node_using_reference_path(
     path: &str,
-    current_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
-) -> Option<Rc<RefCell<CoalTree>>> {
+    current_node: TreeRef,
+    root_node: TreeRef,
+) -> Option<TreeRef> {
     if path.starts_with("ROOT.") {
         return traverse_path(root_node, &path[5..]);
     }
@@ -307,7 +307,7 @@ pub fn find_target_node_using_reference_path(
     traverse_path(root_node, path)
 }
 
-fn traverse_path(node: Rc<RefCell<CoalTree>>, path: &str) -> Option<Rc<RefCell<CoalTree>>> {
+fn traverse_path(node: TreeRef, path: &str) -> Option<TreeRef> {
     let mut current_search_node = node;
     for segment in path.split('.').filter(|s| !s.is_empty()) {
         let found_child = current_search_node
@@ -323,8 +323,8 @@ fn traverse_path(node: Rc<RefCell<CoalTree>>, path: &str) -> Option<Rc<RefCell<C
 
 pub fn resolve_jinja_reference_string(
     input: &str,
-    current_node: Rc<RefCell<CoalTree>>,
-    root_node: Rc<RefCell<CoalTree>>,
+    current_node: TreeRef,
+    root_node: TreeRef,
 ) -> String {
     let mut resolved_result = input.to_string();
     let partial_regex = get_partial_regex();
@@ -357,7 +357,7 @@ pub fn resolve_jinja_reference_string(
 // TREE SYNCHRONIZATION AND CLEANUP
 // =====================================================================
 
-pub fn synchronize_node_values_depth_first(node: Rc<RefCell<CoalTree>>) {
+pub fn synchronize_node_values_depth_first(node: TreeRef) {
     let children = node.borrow().children.clone();
     for child in children {
         synchronize_node_values_depth_first(child);
@@ -394,14 +394,14 @@ pub fn synchronize_node_values_depth_first(node: Rc<RefCell<CoalTree>>) {
     }
 }
 
-pub fn resolve_all_jinja_values_in_tree(node: Rc<RefCell<CoalTree>>, root: Rc<RefCell<CoalTree>>) {
+pub fn resolve_all_jinja_values_in_tree(node: TreeRef, root: TreeRef) {
     let mut visited_paths = std::collections::HashSet::new();
     resolve_node_jinja_recursive(node, root, &mut visited_paths);
 }
 
 fn resolve_node_jinja_recursive(
-    node: Rc<RefCell<CoalTree>>,
-    root: Rc<RefCell<CoalTree>>,
+    node: TreeRef,
+    root: TreeRef,
     visited: &mut std::collections::HashSet<String>,
 ) {
     let current_path = node.borrow().get_path();
@@ -421,8 +421,8 @@ fn resolve_node_jinja_recursive(
 }
 
 fn process_jinja_children(
-    node: &Rc<RefCell<CoalTree>>,
-    root: &Rc<RefCell<CoalTree>>,
+    node: &TreeRef,
+    root: &TreeRef,
     visited: &mut std::collections::HashSet<String>,
 ) {
     let children_references = node.borrow().children.clone();
@@ -432,8 +432,8 @@ fn process_jinja_children(
 }
 
 fn process_jinja_node_value(
-    node: &Rc<RefCell<CoalTree>>,
-    root: &Rc<RefCell<CoalTree>>,
+    node: &TreeRef,
+    root: &TreeRef,
     visited: &mut std::collections::HashSet<String>,
 ) -> bool {
     let node_value_as_string = node.borrow().value.as_ref().and_then(|v| v.as_str()).map(|s| s.to_string());
@@ -449,8 +449,8 @@ fn process_jinja_node_value(
 }
 
 fn process_exact_jinja_match(
-    node: &Rc<RefCell<CoalTree>>,
-    root: &Rc<RefCell<CoalTree>>,
+    node: &TreeRef,
+    root: &TreeRef,
     visited: &mut std::collections::HashSet<String>,
     reference_path: &str,
 ) -> bool {
@@ -468,8 +468,8 @@ fn process_exact_jinja_match(
 }
 
 fn apply_target_node_substitution(
-    node: &Rc<RefCell<CoalTree>>,
-    target: &Rc<RefCell<CoalTree>>,
+    node: &TreeRef,
+    target: &TreeRef,
 ) {
     let (target_value, target_children) = {
         let borrowed_target = target.borrow();
@@ -488,8 +488,8 @@ fn apply_target_node_substitution(
 }
 
 fn process_partial_jinja_match(
-    node: &Rc<RefCell<CoalTree>>,
-    root: &Rc<RefCell<CoalTree>>,
+    node: &TreeRef,
+    root: &TreeRef,
     visited: &mut std::collections::HashSet<String>,
     content_string: &str,
 ) -> bool {
@@ -544,7 +544,7 @@ pub fn strip_system_directives_from_value(value: &mut Value) {
     }
 }
 
-pub fn clean_up_system_directives(node: Rc<RefCell<CoalTree>>) {
+pub fn clean_up_system_directives(node: TreeRef) {
     {
         let mut borrowed = node.borrow_mut();
 
@@ -593,7 +593,7 @@ pub fn extract_string_array_from_yaml_value(value: &Value) -> Vec<String> {
     }
 }
 
-pub fn prune_empty_mapping_nodes(node: Rc<RefCell<CoalTree>>) {
+pub fn prune_empty_mapping_nodes(node: TreeRef) {
     // 1. Traverse bottom-up: recursively clean children first
     let children = node.borrow().children.clone();
     for child in children {

@@ -5,4 +5,5 @@ pub mod coal_tree;
 pub mod diagnostics;
 pub mod shared_logic;
 pub mod tree_builder;
+pub mod type_aliases;
 pub mod vfs;

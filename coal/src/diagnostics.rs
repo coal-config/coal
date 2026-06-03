@@ -1,7 +1,6 @@
 use crate::coal_tree::{CoalTree, Span};
+use crate::type_aliases::TreeRef;
 use serde_yaml::Value;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct DiagnosticError {
@@ -13,7 +12,7 @@ pub struct DiagnosticError {
 }
 
 pub fn generate_diagnostics_for_entire_tree(
-    current_node: Rc<RefCell<CoalTree>>,
+    current_node: TreeRef,
     diagnostic_errors: &mut Vec<DiagnosticError>,
 ) {
     let node_borrowed = current_node.borrow();
