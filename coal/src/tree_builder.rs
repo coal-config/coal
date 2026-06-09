@@ -34,7 +34,7 @@ pub fn build_entire_coal_configuration_tree(
     synchronize_node_values_depth_first(Rc::clone(&root));
     resolve_all_jinja_values_in_tree(Rc::clone(&root), Rc::clone(&root));
 
-    prune_empty_mapping_nodes(Rc::clone(&root));
+    // prune_empty_mapping_nodes(Rc::clone(&root));
 
     // Phase 4: Validation
     let mut diagnostic_errors = Vec::new();
