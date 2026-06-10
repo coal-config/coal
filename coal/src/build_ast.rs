@@ -2,6 +2,7 @@ use crate::coal_tree::CoalTree;
 use crate::shared_logic::{
     add_or_replace_child_node_in_parent, clone_tree_node_recursively,
     extract_string_array_from_yaml_value, find_target_node_using_reference_path,
+    resolve_id_directive_for_node, resolve_id_directives_depth_first,
     resolve_jinja_reference_string,
 };
 use crate::type_aliases::{TreeRef, new_tree_ref};
@@ -11,6 +12,7 @@ use std::rc::Rc;
 pub fn process_abstract_syntax_tree_functions_depth_first(
     current_tree_node: TreeRef,
     root_tree_node: TreeRef,
+    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
 
     while let Some(directive_node) = identify_next_directive(&current_tree_node) {
@@ -18,6 +20,7 @@ pub fn process_abstract_syntax_tree_functions_depth_first(
             Rc::clone(&directive_node),
             Rc::clone(&current_tree_node),
             Rc::clone(&root_tree_node),
+            id_counters,
         )?;
 
         current_tree_node.borrow_mut().children.retain(|child| !Rc::ptr_eq(child, &directive_node));
@@ -25,9 +28,19 @@ pub fn process_abstract_syntax_tree_functions_depth_first(
 
     resolve_parent_for_node(Rc::clone(&current_tree_node));
 
+    // "$id" resolves during structural processing. Nodes that are inheritance
+    // targets may already have been resolved by handle_inherit_node, in which
+    // case this is a no-op.
+    resolve_id_directive_for_node(
+        Rc::clone(&current_tree_node),
+        Rc::clone(&root_tree_node),
+        "$id",
+        id_counters,
+    );
+
     let children = current_tree_node.borrow().children.clone();
     for child in children {
-        process_abstract_syntax_tree_functions_depth_first(child, Rc::clone(&root_tree_node))?;
+        process_abstract_syntax_tree_functions_depth_first(child, Rc::clone(&root_tree_node), id_counters)?;
     }
 
     Ok(())
@@ -66,12 +79,13 @@ fn execute_directive(
     directive: TreeRef,
     parent: TreeRef,
     root: TreeRef,
+    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let directive_key = directive.borrow().key.clone().unwrap();
 
     match directive_key.as_str() {
-        "$inherit" => handle_inherit_node(directive, parent, root, false),
-        "$override" => handle_inherit_node(directive, parent, root, true),
+        "$inherit" => handle_inherit_node(directive, parent, root, false, id_counters),
+        "$override" => handle_inherit_node(directive, parent, root, true, id_counters),
         "$extend" => handle_extend_node(directive, parent, root),
         "$append" => handle_append_node(directive, parent),
         "$select" => handle_select_node(directive, parent, root),
@@ -238,9 +252,10 @@ fn handle_inherit_node(
     parent_node: TreeRef,
     root_node: TreeRef,
     is_override: bool,
+    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     if !directive_node.borrow().children.is_empty() {
-        process_abstract_syntax_tree_functions_depth_first(Rc::clone(&directive_node), Rc::clone(&root_node))?;
+        process_abstract_syntax_tree_functions_depth_first(Rc::clone(&directive_node), Rc::clone(&root_node), id_counters)?;
         apply_children_to_parent(directive_node, parent_node, is_override);
         return Ok(());
     }
@@ -251,8 +266,20 @@ fn handle_inherit_node(
             let resolved_path = resolve_jinja_reference_string(&unresolved_path, Rc::clone(&directive_node), Rc::clone(&root_node));
 
             if let Some(target) = find_target_node_using_reference_path(&resolved_path, Rc::clone(&directive_node), Rc::clone(&root_node)) {
+                // Resolve every "$id" inside the target itself just before it
+                // is inherited. The clone below then carries the actual ID
+                // values instead of the unresolved tags, so all inheritors
+                // (and the target) share the same numbers. "$id_after" tags
+                // are deliberately left untouched and cloned as-is.
+                resolve_id_directives_depth_first(
+                    Rc::clone(&target),
+                    Rc::clone(&root_node),
+                    "$id",
+                    id_counters,
+                );
+
                 let ghost = create_processing_ghost(target, &root_node);
-                process_abstract_syntax_tree_functions_depth_first(Rc::clone(&ghost), Rc::clone(&root_node))?;
+                process_abstract_syntax_tree_functions_depth_first(Rc::clone(&ghost), Rc::clone(&root_node), id_counters)?;
                 apply_children_to_parent(ghost, Rc::clone(&parent_node), is_override);
             }
         }

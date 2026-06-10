@@ -354,11 +354,11 @@ pub fn resolve_jinja_reference_string(
 }
 
 // =====================================================================
-// ID DIRECTIVE RESOLUTION ($id_now / $id / $id_end)
+// ID DIRECTIVE RESOLUTION ($id_now / $id / $id_after)
 // =====================================================================
 
 /// Checks whether `node` carries a child with the given id directive key
-/// (e.g. "$id_now", "$id", "$id_end"). If so, replaces the node's value
+/// (e.g. "$id_now", "$id", "$id_after"). If so, replaces the node's value
 /// with the next sequential integer for that counter name and removes the
 /// directive child. The counter name itself may contain Jinja references.
 pub fn resolve_id_directive_for_node(
@@ -399,7 +399,7 @@ pub fn resolve_id_directive_for_node(
 
 /// Depth-first pass that resolves every occurrence of the given id directive
 /// in the (sub)tree. Used for "$id" (right after the include phase) and
-/// "$id_end" (once the whole tree has been built by the AST phase).
+/// "$id_after" (once the whole tree has been built by the AST phase).
 pub fn resolve_id_directives_depth_first(
     node: TreeRef,
     root_node: TreeRef,

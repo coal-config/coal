@@ -23,29 +23,29 @@ pub fn build_entire_coal_configuration_tree(
 ) -> Result<(TreeRef, Vec<DiagnosticError>), Box<dyn Error>> {
     let root = parse_initial_root(entry_path, Arc::clone(&vfs))?;
 
-    // A single counter map is shared across all ID phases so that a counter
-    // name (e.g. "db_counters") keeps incrementing regardless of whether it
-    // is referenced via $id_now, $id, or $id_end.
+    // Phase 1: Expansion (Includes)
+    process_all_include_functions_depth_first(Rc::clone(&root), Rc::clone(&root), Arc::clone(&vfs))?;
+
+    // A single counter map is shared between "$id" and "$id_after", so a
+    // counter name keeps incrementing regardless of which variant uses it.
     let mut id_counters = HashMap::new();
 
-    // Phase 1: Expansion (Includes). "$id_now" directives are resolved here,
-    // as soon as each node is detected during the depth-first expansion.
-    process_all_include_functions_depth_first(Rc::clone(&root), Rc::clone(&root), Arc::clone(&vfs), &mut id_counters)?;
-
-    // Phase 1.5: "$id" directives resolve once all includes have been spliced
-    // in, but before any AST directives clone or morph the structure.
-    resolve_id_directives_depth_first(Rc::clone(&root), Rc::clone(&root), "$id", &mut id_counters);
-
-    // Phase 2: AST Directives Expansion ($inherit, $each, $parent)
-    process_abstract_syntax_tree_functions_depth_first(Rc::clone(&root), Rc::clone(&root))?;
-
-    // Phase 2.5: "$id_end" directives resolve only once the whole tree has
-    // been built, so every clone produced by $each/$inherit gets a unique ID.
-    resolve_id_directives_depth_first(Rc::clone(&root), Rc::clone(&root), "$id_end", &mut id_counters);
+    // Phase 2: AST Directives Expansion ($inherit, $each, $parent, $id).
+    // "$id" tags resolve during this phase; whenever a node is the target of
+    // $inherit/$override, its "$id" tags are resolved just before cloning so
+    // the inheritor receives the actual ID value instead of the tag.
+    process_abstract_syntax_tree_functions_depth_first(Rc::clone(&root), Rc::clone(&root), &mut id_counters)?;
 
     // Phase 3: Processing (Sync and Jinja)
     synchronize_node_values_depth_first(Rc::clone(&root));
     resolve_all_jinja_values_in_tree(Rc::clone(&root), Rc::clone(&root));
+
+    // Phase 3.5: "$id_after" resolves at the very end, once the entire tree
+    // is built and all Jinja templates (including any inside the id tag
+    // itself) are resolved. Every occurrence — including every clone made by
+    // $each/$inherit/$override — receives its own unique number here.
+    resolve_id_directives_depth_first(Rc::clone(&root), Rc::clone(&root), "$id_after", &mut id_counters);
+    synchronize_node_values_depth_first(Rc::clone(&root));
 
     prune_empty_mapping_nodes(Rc::clone(&root));
 

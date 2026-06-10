@@ -89,7 +89,7 @@ COAL processes configurations in a strict, multi-phase pipeline to ensure depend
 
 ### 1. Expansion (Includes & AST Directives)
 
-COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit`, `$select`, and `$each`) to dynamically duplicate, merge, and generate nodes. ID directives resolve at fixed points in this pipeline: `$id_now` during include expansion, `$id` right after all includes are loaded, and `$id_end` once the AST directives have finished building the tree.
+COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit`, `$select`, and `$each`) to dynamically duplicate, merge, and generate nodes. ID directives resolve at two points in this pipeline: `$id` during the AST directive phase (with inheritance targets resolved just before they are cloned), and `$id_after` at the very end, once the full tree is built and all Jinja templates are resolved.
 
 ### 2. Processing (Synchronization and Jinja)
 
@@ -336,45 +336,42 @@ During parsing, COAL automatically injects these string replacements:
 | --- | --- |
 | `$filename` | Replaced with the base name (stem) of the file the node originated from. |
 | `$parent` | Replaced with the key of the node's immediate parent. |
-| `$id_now` | Generates a sequentially incrementing integer **as soon as the directive is detected**, during the include expansion phase. |
-| `$id` | Generates a sequentially incrementing integer **after all includes are resolved**, but before AST structural directives run. |
-| `$id_end` | Generates a sequentially incrementing integer **once the whole tree is built**, after all AST structural directives have run. |
+| `$id` | Generates a sequentially incrementing integer, resolved **before** inheritance/overriding. |
+| `$id_after` | Generates a sequentially incrementing integer, resolved **at the very end** of the pipeline. |
 
 ### ID Resolution Timing
 
-All three ID variants share the same counter pool: a counter name like `"db_counters"` keeps incrementing no matter which variant references it. The difference is *when* the value is locked in, which matters as soon as cloning directives (`$each`, `$inherit`, `$override`) are involved:
+Both ID variants share the same counter pool: a counter name like `"db_counters"` keeps incrementing no matter which variant references it. The counter name may contain Jinja templates (e.g. `$id: "{{ ROOT.pool_name }}_pool"`), which are resolved against the tree before the counter is looked up. The difference between the two variants is *when* the value is locked in:
 
-* **`$id_now`** resolves during Phase 1 (Expansion), the moment the node is encountered. Every physical occurrence in a source file gets its own number, in file-discovery order.
-* **`$id`** resolves in a dedicated pass right after Phase 1 completes. Because this happens *before* `$each`/`$inherit` cloning, any clones made afterwards **share** the already-resolved number.
-* **`$id_end`** resolves in a dedicated pass right after Phase 2 (AST Directives) completes. Because clones still carry the unresolved directive at that point, **every clone gets its own unique number**.
+* **`$id`** resolves during structural processing. Whenever a node is the target of `$inherit` or `$override`, every `$id` inside that target is resolved **just before** it is cloned — so the inheritor receives the actual ID value instead of the tag, and the target plus all of its inheritors share the same number.
+* **`$id_after`** resolves at the very end, once the whole tree is built and all Jinja templates are resolved. The tag survives cloning, so **every occurrence — including every clone** made by `$each`, `$inherit`, or `$override` — receives its own unique number.
 
 **`main.yaml`**
 
 ```yaml
-servers:
-  $each:
-    static_id:
-      $id: "pool"        # Resolved before cloning -> shared
-    unique_id:
-      $id_end: "pool"  # Resolved after cloning -> unique per server
-  srv_a:
-    ip: "1.1.1.1"
-  srv_b:
-    ip: "2.2.2.2"
+base:
+  shared_db:
+    $id: "pool"        # Resolved before inheritance -> shared
+  unique_db:
+    $id_after: "pool"  # Resolved at the end -> unique per node
+app_one:
+  $inherit: "ROOT.base"
+app_two:
+  $inherit: "ROOT.base"
 ```
 
 **`Compiled Output`**
 
 ```yaml
-servers:
-  srv_a:
-    ip: "1.1.1.1"
-    static_id: 1
-    unique_id: 2
-  srv_b:
-    ip: "2.2.2.2"
-    static_id: 1
-    unique_id: 3
+app_one:
+  shared_db: 1
+  unique_db: 3
+app_two:
+  shared_db: 1
+  unique_db: 4
+base:
+  shared_db: 1
+  unique_db: 2
 ```
 
 **`main.yaml`**

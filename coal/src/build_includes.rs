@@ -1,10 +1,8 @@
 use crate::coal_tree::CoalTree;
 use crate::shared_logic::{
     add_or_replace_child_node_in_parent, build_tree_from_marked_node,
-    extract_string_array_from_yaml_value, marked_node_to_serde_value,
-    resolve_id_directive_for_node, resolve_jinja_reference_string,
+    extract_string_array_from_yaml_value, marked_node_to_serde_value, resolve_jinja_reference_string,
 };
-use std::collections::HashMap;
 use crate::type_aliases::{VfsRef, TreeRef, new_tree_ref};
 use crate::vfs::normalize_path;
 use std::cell::RefCell;
@@ -19,17 +17,7 @@ pub fn process_all_include_functions_depth_first(
     current_tree_node: TreeRef,
     root_tree_node: TreeRef,
     vfs: VfsRef,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
-    // "$id_now" is resolved as soon as the node is detected during expansion,
-    // before any further include processing or AST directives run.
-    resolve_id_directive_for_node(
-        Rc::clone(&current_tree_node),
-        Rc::clone(&root_tree_node),
-        "$id_now",
-        id_counters,
-    );
-
     let children_references = current_tree_node.borrow().children.clone();
     let mut children_marked_for_removal = Vec::new();
 
@@ -39,7 +27,6 @@ pub fn process_all_include_functions_depth_first(
             Rc::clone(&current_tree_node),
             Rc::clone(&root_tree_node),
             Arc::clone(&vfs),
-            id_counters,
         )?;
 
         if was_processed {
@@ -50,7 +37,6 @@ pub fn process_all_include_functions_depth_first(
                 Rc::clone(&child_reference),
                 Rc::clone(&root_tree_node),
                 Arc::clone(&vfs),
-                id_counters,
             )?;
         }
     }
@@ -65,7 +51,6 @@ fn process_single_node_directive(
     parent: TreeRef,
     root: TreeRef,
     vfs: VfsRef,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<bool, Box<dyn Error>> {
     let node_key = node.borrow().key.clone();
     let key_string = match node_key {
@@ -74,13 +59,13 @@ fn process_single_node_directive(
     };
 
     match key_string.as_str() {
-        "$include" => handle_standard_file_include(node, parent, root, vfs, false, id_counters)?,
-        "$include_optional" => handle_standard_file_include(node, parent, root, vfs, true, id_counters)?,
-        "$include_directory" => handle_directory_include(node, parent, root, vfs, false, id_counters)?,
-        "$include_directory_optional" => handle_directory_include(node, parent, root, vfs, true, id_counters)?,
-        "$include_subdirectories" => handle_subdirectories_include(node, parent, root, vfs, false, id_counters)?,
+        "$include" => handle_standard_file_include(node, parent, root, vfs, false)?,
+        "$include_optional" => handle_standard_file_include(node, parent, root, vfs, true)?,
+        "$include_directory" => handle_directory_include(node, parent, root, vfs, false)?,
+        "$include_directory_optional" => handle_directory_include(node, parent, root, vfs, true)?,
+        "$include_subdirectories" => handle_subdirectories_include(node, parent, root, vfs, false)?,
         "$include_subdirectories_optional" => {
-            handle_subdirectories_include(node, parent, root, vfs, true, id_counters)?
+            handle_subdirectories_include(node, parent, root, vfs, true)?
         }
         _ => return Ok(false),
     };
@@ -96,7 +81,6 @@ fn handle_standard_file_include(
     root_node: TreeRef,
     vfs: VfsRef,
     is_optional: bool,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
 
@@ -111,7 +95,6 @@ fn handle_standard_file_include(
                 Rc::clone(&parent_node),
                 Rc::clone(&root_node),
                 Arc::clone(&vfs),
-                id_counters,
             )?;
         }
     }
@@ -124,7 +107,6 @@ fn handle_directory_include(
     root_node: TreeRef,
     vfs: VfsRef,
     is_optional: bool,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
 
@@ -142,7 +124,6 @@ fn handle_directory_include(
                         Rc::clone(&parent_node),
                         Rc::clone(&root_node),
                         Arc::clone(&vfs),
-                        id_counters,
                     )?;
                 }
             }
@@ -157,7 +138,6 @@ fn handle_subdirectories_include(
     root_node: TreeRef,
     vfs: VfsRef,
     is_optional: bool,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let target_paths = get_paths_from_node(&include_node);
 
@@ -178,7 +158,6 @@ fn handle_subdirectories_include(
                             Rc::clone(&parent_node),
                             Rc::clone(&root_node),
                             Arc::clone(&vfs),
-                            id_counters,
                         )?;
                     }
                 }
@@ -226,11 +205,10 @@ fn process_and_integrate_yaml_file(
     parent: TreeRef,
     root: TreeRef,
     vfs: VfsRef,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let temporary_root = parse_and_build_tree_node(content, file_path, "TEMPORARY_ROOT".to_string(), Rc::clone(&parent))?;
 
-    process_all_include_functions_depth_first(Rc::clone(&temporary_root), root, vfs, id_counters)?;
+    process_all_include_functions_depth_first(Rc::clone(&temporary_root), root, vfs)?;
 
     merge_temporary_tree_into_parent(temporary_root, parent);
     Ok(())
@@ -276,14 +254,13 @@ fn process_named_child_file(
     parent: TreeRef,
     root: TreeRef,
     vfs: VfsRef,
-    id_counters: &mut HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let file_path_string = normalize_path(path.to_str().unwrap());
     let content = vfs.lock().unwrap().get_file_content(&file_path_string)?;
 
     let child_node = parse_and_build_tree_node(&content, &file_path_string, key_name, Rc::clone(&parent))?;
 
-    process_all_include_functions_depth_first(Rc::clone(&child_node), root, vfs, id_counters)?;
+    process_all_include_functions_depth_first(Rc::clone(&child_node), root, vfs)?;
     add_or_replace_child_node_in_parent(parent, child_node, false);
 
     Ok(())
