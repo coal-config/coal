@@ -89,7 +89,7 @@ COAL processes configurations in a strict, multi-phase pipeline to ensure depend
 
 ### 1. Expansion (Includes & AST Directives)
 
-COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit`, `$select`, and `$map`) to dynamically duplicate, merge, and generate nodes.
+COAL parses the `main.yaml` file into a `CoalTree` root node and performs a depth-first traversal to expand the file system structure by processing `$include` directives, parsing those external files, and splicing them directly into the current tree. Once all files are loaded into memory, it performs another pass to evaluate AST structural directives (like `$inherit`, `$select`, and `$each`) to dynamically duplicate, merge, and generate nodes. ID directives resolve at fixed points in this pipeline: `$id_now` during include expansion, `$id` right after all includes are loaded, and `$id_end` once the AST directives have finished building the tree.
 
 ### 2. Processing (Synchronization and Jinja)
 
@@ -102,6 +102,10 @@ If validation is enabled, COAL loads the `main.schema` file from the `schema/` d
 ### 4. Final Cleanup
 
 Before outputting the final YAML, COAL traverses the tree one last time and scrubs any keys that start with `$`. This ensures all internal system directives are hidden from the final compiled configuration file.
+
+### 5. Alphabetical Ordering
+
+As a final step, COAL sorts the entire tree alphabetically by key. The compiled YAML output is therefore always printed in alphabetical order by default, regardless of the order keys were declared in or which files they were merged from. List items are the exception: they keep their numeric order, so item `10` never jumps in front of item `2`.
 
 ---
 
@@ -332,7 +336,46 @@ During parsing, COAL automatically injects these string replacements:
 | --- | --- |
 | `$filename` | Replaced with the base name (stem) of the file the node originated from. |
 | `$parent` | Replaced with the key of the node's immediate parent. |
-| `$id` | Generates a sequentially incrementing integer. |
+| `$id_now` | Generates a sequentially incrementing integer **as soon as the directive is detected**, during the include expansion phase. |
+| `$id` | Generates a sequentially incrementing integer **after all includes are resolved**, but before AST structural directives run. |
+| `$id_end` | Generates a sequentially incrementing integer **once the whole tree is built**, after all AST structural directives have run. |
+
+### ID Resolution Timing
+
+All three ID variants share the same counter pool: a counter name like `"db_counters"` keeps incrementing no matter which variant references it. The difference is *when* the value is locked in, which matters as soon as cloning directives (`$each`, `$inherit`, `$override`) are involved:
+
+* **`$id_now`** resolves during Phase 1 (Expansion), the moment the node is encountered. Every physical occurrence in a source file gets its own number, in file-discovery order.
+* **`$id`** resolves in a dedicated pass right after Phase 1 completes. Because this happens *before* `$each`/`$inherit` cloning, any clones made afterwards **share** the already-resolved number.
+* **`$id_end`** resolves in a dedicated pass right after Phase 2 (AST Directives) completes. Because clones still carry the unresolved directive at that point, **every clone gets its own unique number**.
+
+**`main.yaml`**
+
+```yaml
+servers:
+  $each:
+    static_id:
+      $id: "pool"        # Resolved before cloning -> shared
+    unique_id:
+      $id_end: "pool"  # Resolved after cloning -> unique per server
+  srv_a:
+    ip: "1.1.1.1"
+  srv_b:
+    ip: "2.2.2.2"
+```
+
+**`Compiled Output`**
+
+```yaml
+servers:
+  srv_a:
+    ip: "1.1.1.1"
+    static_id: 1
+    unique_id: 2
+  srv_b:
+    ip: "2.2.2.2"
+    static_id: 1
+    unique_id: 3
+```
 
 **`main.yaml`**
 

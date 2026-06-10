@@ -354,6 +354,147 @@ pub fn resolve_jinja_reference_string(
 }
 
 // =====================================================================
+// ID DIRECTIVE RESOLUTION ($id_now / $id / $id_end)
+// =====================================================================
+
+/// Checks whether `node` carries a child with the given id directive key
+/// (e.g. "$id_now", "$id", "$id_end"). If so, replaces the node's value
+/// with the next sequential integer for that counter name and removes the
+/// directive child. The counter name itself may contain Jinja references.
+pub fn resolve_id_directive_for_node(
+    node: TreeRef,
+    root_node: TreeRef,
+    directive_key: &str,
+    counters: &mut std::collections::HashMap<String, i64>,
+) {
+    let mut id_key_to_process = None;
+
+    {
+        let borrowed = node.borrow();
+        for child in &borrowed.children {
+            let child_borrowed = child.borrow();
+            if child_borrowed.key.as_deref() == Some(directive_key) {
+                if let Some(Value::String(ref s)) = child_borrowed.value {
+                    id_key_to_process = Some(s.clone());
+                    break;
+                }
+            }
+        }
+    }
+
+    if let Some(raw_id_key) = id_key_to_process {
+        let resolved_id_key =
+            resolve_jinja_reference_string(&raw_id_key, Rc::clone(&node), Rc::clone(&root_node));
+        let count = counters.entry(resolved_id_key).or_insert(1);
+
+        let mut borrowed_mut = node.borrow_mut();
+        borrowed_mut.value = Some(Value::Number((*count).into()));
+        borrowed_mut
+            .children
+            .retain(|c| c.borrow().key.as_deref() != Some(directive_key));
+
+        *count += 1;
+    }
+}
+
+/// Depth-first pass that resolves every occurrence of the given id directive
+/// in the (sub)tree. Used for "$id" (right after the include phase) and
+/// "$id_end" (once the whole tree has been built by the AST phase).
+pub fn resolve_id_directives_depth_first(
+    node: TreeRef,
+    root_node: TreeRef,
+    directive_key: &str,
+    counters: &mut std::collections::HashMap<String, i64>,
+) {
+    resolve_id_directive_for_node(
+        Rc::clone(&node),
+        Rc::clone(&root_node),
+        directive_key,
+        counters,
+    );
+
+    let children = node.borrow().children.clone();
+    for child in children {
+        resolve_id_directives_depth_first(child, Rc::clone(&root_node), directive_key, counters);
+    }
+}
+
+// =====================================================================
+// ALPHABETICAL ORDERING
+// =====================================================================
+
+/// Recursively sorts the tree so that sibling keys appear in alphabetical
+/// order. List nodes (numeric keys) are sorted numerically instead, so that
+/// item 10 does not jump in front of item 2. Raw YAML mapping values held on
+/// leaf nodes are sorted as well so printed output is always alphabetical.
+pub fn sort_tree_alphabetically(node: TreeRef) {
+    {
+        let mut borrowed = node.borrow_mut();
+
+        if borrowed.is_list_type() {
+            borrowed.children.sort_by_key(|child| {
+                child
+                    .borrow()
+                    .key
+                    .as_deref()
+                    .and_then(|k| k.parse::<usize>().ok())
+                    .unwrap_or(usize::MAX)
+            });
+        } else {
+            borrowed.children.sort_by(|a, b| {
+                let key_a = a.borrow().key.clone().unwrap_or_default();
+                let key_b = b.borrow().key.clone().unwrap_or_default();
+                key_a.cmp(&key_b)
+            });
+        }
+
+        if let Some(ref mut value) = borrowed.value {
+            sort_yaml_value_keys_recursively(value);
+        }
+    }
+
+    let children = node.borrow().children.clone();
+    for child in children {
+        sort_tree_alphabetically(child);
+    }
+}
+
+/// Sorts all mapping keys inside a raw serde_yaml Value alphabetically.
+pub fn sort_yaml_value_keys_recursively(value: &mut Value) {
+    match value {
+        Value::Mapping(mapping) => {
+            let mut entries: Vec<(Value, Value)> = mapping
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            entries.sort_by(|a, b| yaml_key_as_string(&a.0).cmp(&yaml_key_as_string(&b.0)));
+
+            let mut sorted_mapping = serde_yaml::Mapping::new();
+            for (key, mut val) in entries {
+                sort_yaml_value_keys_recursively(&mut val);
+                sorted_mapping.insert(key, val);
+            }
+            *mapping = sorted_mapping;
+        }
+        Value::Sequence(sequence) => {
+            for item in sequence.iter_mut() {
+                sort_yaml_value_keys_recursively(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn yaml_key_as_string(key: &Value) -> String {
+    match key {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        Value::Bool(b) => b.to_string(),
+        _ => String::new(),
+    }
+}
+
+// =====================================================================
 // TREE SYNCHRONIZATION AND CLEANUP
 // =====================================================================
 

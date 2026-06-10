@@ -11,7 +11,6 @@ use std::rc::Rc;
 pub fn process_abstract_syntax_tree_functions_depth_first(
     current_tree_node: TreeRef,
     root_tree_node: TreeRef,
-    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
 
     while let Some(directive_node) = identify_next_directive(&current_tree_node) {
@@ -19,18 +18,16 @@ pub fn process_abstract_syntax_tree_functions_depth_first(
             Rc::clone(&directive_node),
             Rc::clone(&current_tree_node),
             Rc::clone(&root_tree_node),
-            id_counters
         )?;
 
         current_tree_node.borrow_mut().children.retain(|child| !Rc::ptr_eq(child, &directive_node));
     }
 
     resolve_parent_for_node(Rc::clone(&current_tree_node));
-    resolve_id_for_node(Rc::clone(&current_tree_node), Rc::clone(&root_tree_node), id_counters);
 
     let children = current_tree_node.borrow().children.clone();
     for child in children {
-        process_abstract_syntax_tree_functions_depth_first(child, Rc::clone(&root_tree_node), id_counters)?;
+        process_abstract_syntax_tree_functions_depth_first(child, Rc::clone(&root_tree_node))?;
     }
 
     Ok(())
@@ -46,38 +43,6 @@ fn resolve_parent_for_node(node: TreeRef) {
                 borrowed.value = Some(serde_yaml::Value::String(new_s));
             }
         }
-    }
-}
-
-fn resolve_id_for_node(
-    node: TreeRef,
-    root_node: TreeRef,
-    counters: &mut std::collections::HashMap<String, i64>
-) {
-    let mut id_key_to_process = None;
-
-    {
-        let borrowed = node.borrow();
-        for child in &borrowed.children {
-            let child_borrowed = child.borrow();
-            if child_borrowed.key.as_deref() == Some("$id") {
-                if let Some(serde_yaml::Value::String(ref s)) = child_borrowed.value {
-                    id_key_to_process = Some(s.clone());
-                    break;
-                }
-            }
-        }
-    }
-
-    if let Some(raw_id_key) = id_key_to_process {
-        let resolved_id_key = resolve_jinja_reference_string(&raw_id_key, Rc::clone(&node), Rc::clone(&root_node));
-        let count = counters.entry(resolved_id_key).or_insert(1);
-
-        let mut borrowed_mut = node.borrow_mut();
-        borrowed_mut.value = Some(serde_yaml::Value::Number((*count).into()));
-        borrowed_mut.children.retain(|c| c.borrow().key.as_deref() != Some("$id"));
-
-        *count += 1;
     }
 }
 
@@ -101,13 +66,12 @@ fn execute_directive(
     directive: TreeRef,
     parent: TreeRef,
     root: TreeRef,
-    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     let directive_key = directive.borrow().key.clone().unwrap();
 
     match directive_key.as_str() {
-        "$inherit" => handle_inherit_node(directive, parent, root, false, id_counters),
-        "$override" => handle_inherit_node(directive, parent, root, true, id_counters),
+        "$inherit" => handle_inherit_node(directive, parent, root, false),
+        "$override" => handle_inherit_node(directive, parent, root, true),
         "$extend" => handle_extend_node(directive, parent, root),
         "$append" => handle_append_node(directive, parent),
         "$select" => handle_select_node(directive, parent, root),
@@ -274,10 +238,9 @@ fn handle_inherit_node(
     parent_node: TreeRef,
     root_node: TreeRef,
     is_override: bool,
-    id_counters: &mut std::collections::HashMap<String, i64>,
 ) -> Result<(), Box<dyn Error>> {
     if !directive_node.borrow().children.is_empty() {
-        process_abstract_syntax_tree_functions_depth_first(Rc::clone(&directive_node), Rc::clone(&root_node), id_counters)?;
+        process_abstract_syntax_tree_functions_depth_first(Rc::clone(&directive_node), Rc::clone(&root_node))?;
         apply_children_to_parent(directive_node, parent_node, is_override);
         return Ok(());
     }
@@ -289,7 +252,7 @@ fn handle_inherit_node(
 
             if let Some(target) = find_target_node_using_reference_path(&resolved_path, Rc::clone(&directive_node), Rc::clone(&root_node)) {
                 let ghost = create_processing_ghost(target, &root_node);
-                process_abstract_syntax_tree_functions_depth_first(Rc::clone(&ghost), Rc::clone(&root_node), id_counters)?;
+                process_abstract_syntax_tree_functions_depth_first(Rc::clone(&ghost), Rc::clone(&root_node))?;
                 apply_children_to_parent(ghost, Rc::clone(&parent_node), is_override);
             }
         }
