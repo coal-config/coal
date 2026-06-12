@@ -1,8 +1,8 @@
 {
   "name": "coal",
-  "displayName": "coal",
-  "description": "Language Server for COAL",
-  "version": "0.1.1",
+  "displayName": "COAL",
+  "description": "Language support for COAL configuration projects: diagnostics, hover, and completion powered by the COAL language server.",
+  "version": "0.2.0",
   "engines": {
     "vscode": "^1.110.0"
   },
@@ -19,9 +19,22 @@
     "languages": [
       {
         "id": "coal",
-        "aliases": ["COAL", "coal"],
-        "extensions": [".coal"],
+        "aliases": [
+          "COAL",
+          "coal"
+        ],
+        "extensions": [
+          ".coal",
+          ".schema"
+        ],
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "coal.restartLanguageServer",
+        "category": "COAL",
+        "title": "Restart Language Server"
       }
     ],
     "configuration": {
@@ -30,7 +43,17 @@
         "coal.languageServerPath": {
           "type": "string",
           "default": "",
-          "description": "Path to the coal-lsp executable. If left empty, the extension will look for 'coal-lsp' in your system PATH."
+          "description": "Path to the coal-lsp executable. Supports '~' for the home directory. If left empty, the extension looks for 'coal-lsp' on your system PATH."
+        },
+        "coalLanguageServer.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the COAL language server."
         }
       }
     }
