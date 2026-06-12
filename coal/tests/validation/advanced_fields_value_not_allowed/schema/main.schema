@@ -1,0 +1,6 @@
+process: string
+$advanced_fields:
+  environment:
+    type: string
+    default_value: "development"
+    allowed_values: ["development", "staging", "production"]

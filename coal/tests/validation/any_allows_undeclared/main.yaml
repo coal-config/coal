@@ -1,0 +1,5 @@
+processes:
+  encoder:
+    exec: "/bin/encoder"
+  decoder:
+    exec: "/bin/decoder"

@@ -1,0 +1,4 @@
+name: string
+$optional:
+  description: string
+  nickname: string

@@ -1,0 +1,3 @@
+- type: FieldNotAllowed
+  path: extra
+  contains: "not allowed"

@@ -1,0 +1,7 @@
+$declare:
+  ip_config:
+    address: string
+    gateway: string
+
+node_1:
+  $use: "ip_config"

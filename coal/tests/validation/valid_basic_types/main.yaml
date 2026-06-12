@@ -1,0 +1,11 @@
+name: "server"
+port: 8080
+ratio: 0.5
+count: 3
+enabled: true
+tags:
+  - web
+  - api
+limits:
+  cpu: 2
+anything: whatever

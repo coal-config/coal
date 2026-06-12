@@ -1,0 +1,3 @@
+- type: ValueNotAllowed
+  path: assigned_cluster
+  contains: "not in allowed list"
