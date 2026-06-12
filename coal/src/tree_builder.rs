@@ -1,97 +1,139 @@
 use crate::coal_tree::{CoalTree, Span};
-use crate::build_includes::process_all_include_functions_depth_first;
-use crate::build_ast::process_abstract_syntax_tree_functions_depth_first;
-use crate::apply_schemas::{load_all_schema_files_from_directory, apply_schema_definition_to_tree_node};
-use crate::diagnostics::{generate_diagnostics_for_entire_tree, DiagnosticError};
-use crate::shared_logic::{
-    build_tree_from_marked_node, marked_node_to_serde_value,
-    resolve_all_jinja_values_in_tree, resolve_id_directives_depth_first,
-    synchronize_node_values_depth_first, clean_up_system_directives,
-    prune_empty_mapping_nodes, sort_tree_alphabetically
+use crate::diagnostics::{DiagnosticError, generate_diagnostics_for_entire_tree};
+use crate::identifier_directives::{IdentifierCounters, resolve_identifier_directives_depth_first};
+use crate::include_directives::process_include_directives_depth_first;
+use crate::reference_resolution::resolve_all_jinja_values_in_tree;
+use crate::schema_application::{
+    apply_schema_definition_to_tree_node, load_all_schema_files_from_directory,
 };
-use crate::type_aliases::{VfsRef, TreeRef, new_tree_ref};
+use crate::structural_directives::process_structural_directives_depth_first;
+use crate::tree_finalization::{
+    prune_empty_mapping_nodes, remove_system_directives_from_tree, sort_tree_alphabetically,
+    synchronize_node_values_depth_first,
+};
+use crate::tree_operations::build_tree_from_marked_node;
+use crate::type_aliases::{TreeNodeReference, VirtualFileSystemReference, new_tree_node_reference};
+use crate::yaml_values::convert_marked_yaml_node_to_value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Runs the full compilation pipeline: include expansion, structural
+/// directives, value synchronization, Jinja resolution, optional schema
+/// validation, directive cleanup, and alphabetical ordering. Returns the
+/// fully built tree together with any validation diagnostics.
 pub fn build_entire_coal_configuration_tree(
     entry_path: &str,
     schema_directory_path: &str,
-    vfs: VfsRef,
+    virtual_file_system: VirtualFileSystemReference,
     validate: bool,
-) -> Result<(TreeRef, Vec<DiagnosticError>), Box<dyn Error>> {
-    let root = parse_initial_root(entry_path, Arc::clone(&vfs))?;
+) -> Result<(TreeNodeReference, Vec<DiagnosticError>), Box<dyn Error>> {
+    let root_node = parse_root_document(entry_path, Arc::clone(&virtual_file_system))?;
 
-    // Phase 1: Expansion (Includes)
-    process_all_include_functions_depth_first(Rc::clone(&root), Rc::clone(&root), Arc::clone(&vfs))?;
+    // Phase 1: Expansion (includes).
+    process_include_directives_depth_first(
+        Rc::clone(&root_node),
+        Rc::clone(&root_node),
+        Arc::clone(&virtual_file_system),
+    )?;
 
     // A single counter map is shared between "$id" and "$id_after", so a
     // counter name keeps incrementing regardless of which variant uses it.
-    let mut id_counters = HashMap::new();
+    let mut identifier_counters = IdentifierCounters::new();
 
-    // Phase 2: AST Directives Expansion ($inherit, $each, $parent, $id).
+    // Phase 2: Structural directives ($inherit, $each, $parent, $id).
     // "$id" tags resolve during this phase; whenever a node is the target of
     // $inherit/$override, its "$id" tags are resolved just before cloning so
     // the inheritor receives the actual ID value instead of the tag.
-    process_abstract_syntax_tree_functions_depth_first(Rc::clone(&root), Rc::clone(&root), &mut id_counters)?;
+    process_structural_directives_depth_first(
+        Rc::clone(&root_node),
+        Rc::clone(&root_node),
+        &mut identifier_counters,
+    )?;
 
-    // Phase 3: Processing (Sync and Jinja)
-    synchronize_node_values_depth_first(Rc::clone(&root));
-    resolve_all_jinja_values_in_tree(Rc::clone(&root), Rc::clone(&root));
+    // Phase 3: Processing (value synchronization and Jinja).
+    synchronize_node_values_depth_first(Rc::clone(&root_node));
+    resolve_all_jinja_values_in_tree(Rc::clone(&root_node), Rc::clone(&root_node));
 
     // Phase 3.5: "$id_after" resolves at the very end, once the entire tree
     // is built and all Jinja templates (including any inside the id tag
     // itself) are resolved. Every occurrence — including every clone made by
     // $each/$inherit/$override — receives its own unique number here.
-    resolve_id_directives_depth_first(Rc::clone(&root), Rc::clone(&root), "$id_after", &mut id_counters);
-    synchronize_node_values_depth_first(Rc::clone(&root));
+    resolve_identifier_directives_depth_first(
+        Rc::clone(&root_node),
+        Rc::clone(&root_node),
+        "$id_after",
+        &mut identifier_counters,
+    );
+    synchronize_node_values_depth_first(Rc::clone(&root_node));
 
-    prune_empty_mapping_nodes(Rc::clone(&root));
+    prune_empty_mapping_nodes(Rc::clone(&root_node));
 
-    // Phase 4: Validation
+    // Phase 4: Validation.
     let mut diagnostic_errors = Vec::new();
     if validate {
-        execute_validation_pipeline(Rc::clone(&root), vfs, schema_directory_path, &mut diagnostic_errors)?; // UPDATED
+        run_validation_phase(
+            Rc::clone(&root_node),
+            virtual_file_system,
+            schema_directory_path,
+            &mut diagnostic_errors,
+        )?;
     }
 
-    // Phase 5: Final Cleanup
-    clean_up_system_directives(Rc::clone(&root));
+    // Phase 5: Final cleanup of unprocessed system directives.
+    remove_system_directives_from_tree(Rc::clone(&root_node));
 
     // Phase 6: Default alphabetical ordering of the tree (and thus of any
     // printed output). List items keep their numeric order.
-    sort_tree_alphabetically(Rc::clone(&root));
+    sort_tree_alphabetically(Rc::clone(&root_node));
 
-    Ok((root, diagnostic_errors))
+    Ok((root_node, diagnostic_errors))
 }
 
-fn execute_validation_pipeline(
-    root: TreeRef,
-    vfs: VfsRef,
-    schema_dir_path: &str,
-    errors: &mut Vec<DiagnosticError>
+fn run_validation_phase(
+    root_node: TreeNodeReference,
+    virtual_file_system: VirtualFileSystemReference,
+    schema_directory_path: &str,
+    diagnostic_errors: &mut Vec<DiagnosticError>,
 ) -> Result<(), Box<dyn Error>> {
-    let schemas = load_all_schema_files_from_directory(schema_dir_path, vfs).unwrap_or_default(); // UPDATED
+    let schemas = load_all_schema_files_from_directory(schema_directory_path, virtual_file_system)
+        .unwrap_or_default();
+
     if let Some(main_schema) = schemas.get("main") {
-        apply_schema_definition_to_tree_node(Rc::clone(&root), main_schema, "main", Rc::clone(&root), &schemas, &HashMap::new())?;
+        apply_schema_definition_to_tree_node(
+            Rc::clone(&root_node),
+            main_schema,
+            "main",
+            Rc::clone(&root_node),
+            &schemas,
+            &HashMap::new(),
+        )?;
     }
-    generate_diagnostics_for_entire_tree(root, errors);
+
+    generate_diagnostics_for_entire_tree(root_node, diagnostic_errors);
     Ok(())
 }
 
-fn parse_initial_root(path: &str, vfs: VfsRef) -> Result<TreeRef, Box<dyn Error>> {
-    let content = vfs.lock().unwrap().get_file_content(path)?;
-    let marked = marked_yaml::parse_yaml(0, &content)
-        .map_err(|e| format!("YAML Parse Error in '{}': {}", path, e))?;
+fn parse_root_document(
+    entry_path: &str,
+    virtual_file_system: VirtualFileSystemReference,
+) -> Result<TreeNodeReference, Box<dyn Error>> {
+    let content = virtual_file_system
+        .lock()
+        .unwrap()
+        .get_file_content(entry_path)?;
+    let marked_root = marked_yaml::parse_yaml(0, &content)
+        .map_err(|error| format!("YAML Parse Error in '{}': {}", entry_path, error))?;
 
-    let root = new_tree_ref(CoalTree {
+    let root_node = new_tree_node_reference(CoalTree {
         key: Some("ROOT".to_string()),
-        value: Some(marked_node_to_serde_value(&marked)),
-        origin: Some(path.to_string()),
+        value: Some(convert_marked_yaml_node_to_value(&marked_root)),
+        origin: Some(entry_path.to_string()),
         span: Some(Span { line: 1, col: 1 }),
         ..Default::default()
     });
 
-    build_tree_from_marked_node(&marked, Rc::clone(&root), path);
-    Ok(root)
+    build_tree_from_marked_node(&marked_root, Rc::clone(&root_node), entry_path);
+    Ok(root_node)
 }

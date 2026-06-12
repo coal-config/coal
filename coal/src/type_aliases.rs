@@ -1,25 +1,27 @@
 use crate::coal_tree::CoalTree;
-use crate::vfs::VirtualFileSystem;
+use crate::virtual_file_system::VirtualFileSystem;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-/// Type alias for a thread-safe, shared reference to the Virtual File System.
+/// A thread-safe, shared reference to the Virtual File System.
 /// Uses Arc for thread-safe reference counting and Mutex for synchronized mutable access.
-pub type VfsRef = Arc<Mutex<VirtualFileSystem>>;
+pub type VirtualFileSystemReference = Arc<Mutex<VirtualFileSystem>>;
 
-/// Type alias for a shared, mutable reference to a CoalTree node.
+/// A shared, mutable reference to a CoalTree node.
 /// Uses Rc for reference counting (single-threaded) and RefCell for interior mutability.
-pub type TreeRef = Rc<RefCell<CoalTree>>;
+pub type TreeNodeReference = Rc<RefCell<CoalTree>>;
 
-/// Helper function to create a new VfsRef
+/// Wraps a VirtualFileSystem in a new shared reference.
 #[inline]
-pub fn new_vfs_ref(vfs: VirtualFileSystem) -> VfsRef {
-    Arc::new(Mutex::new(vfs))
+pub fn new_virtual_file_system_reference(
+    virtual_file_system: VirtualFileSystem,
+) -> VirtualFileSystemReference {
+    Arc::new(Mutex::new(virtual_file_system))
 }
 
-/// Helper function to create a new TreeRef
+/// Wraps a CoalTree node in a new shared reference.
 #[inline]
-pub fn new_tree_ref(tree: CoalTree) -> TreeRef {
-    Rc::new(RefCell::new(tree))
+pub fn new_tree_node_reference(tree_node: CoalTree) -> TreeNodeReference {
+    Rc::new(RefCell::new(tree_node))
 }

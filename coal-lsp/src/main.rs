@@ -1,7 +1,7 @@
 use coal::tree_builder::build_entire_coal_configuration_tree;
-use coal::vfs::{VirtualFileSystem, normalize_path};
+use coal::virtual_file_system::{VirtualFileSystem, normalize_path};
 use coal::coal_tree::{CoalTree, tree_to_yaml};
-use coal::shared_logic::{find_target_node_using_reference_path, resolve_jinja_reference_string};
+use coal::reference_resolution::{find_target_node_using_reference_path, resolve_jinja_reference_string};
 use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, HashSet};
 use std::cell::RefCell;
@@ -89,20 +89,20 @@ impl Backend {
             match pipeline_result {
                 Ok((_, coal_diagnostics)) => {
                     for diag in coal_diagnostics {
-                        let (line, col) = if let Some(span) = &diag.span_option {
+                        let (line, col) = if let Some(span) = &diag.span {
                             (span.line.saturating_sub(1) as u32, span.col.saturating_sub(1) as u32)
                         } else {
                             (0, 0)
                         };
 
                         diags_to_add.push((
-                            diag.file_origin_string.clone(),
+                            diag.file_origin.clone(),
                             Diagnostic {
                                 range: Range::new(Position::new(line, col), Position::new(line, col + 50)),
                                 severity: Some(DiagnosticSeverity::ERROR),
-                                code: Some(NumberOrString::String(diag.error_type_string.clone())),
+                                code: Some(NumberOrString::String(diag.error_type.clone())),
                                 source: Some("COAL".to_string()),
-                                message: diag.error_message_string.clone(),
+                                message: diag.message.clone(),
                                 ..Default::default()
                             }
                         ));

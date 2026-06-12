@@ -1,19 +1,26 @@
 use clap::Parser;
 use coal::coal_tree::tree_to_yaml;
 use coal::diagnostics::DiagnosticError;
-use coal::shared_logic::find_target_node_using_reference_path;
+use coal::reference_resolution::find_target_node_using_reference_path;
 use coal::tree_builder::build_entire_coal_configuration_tree;
-use coal::type_aliases::{new_vfs_ref, TreeRef};
-use coal::vfs::VirtualFileSystem;
+use coal::type_aliases::{TreeNodeReference, new_virtual_file_system_reference};
+use coal::virtual_file_system::VirtualFileSystem;
 use std::rc::Rc;
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
-#[command(name = "coal", version, about = "Coalescence (COAL) configuration builder and validator", long_about = None)]
+#[command(
+    name = "coal",
+    version,
+    about = "Coalescence (COAL) configuration builder and validator",
+    long_about = None
+)]
 struct CommandLineArguments {
+    /// Validate the compiled tree against the schema definitions
     #[arg(short = 'v', long = "validate")]
-    validate_boolean: bool,
+    validate: bool,
 
+    /// Dump the internal node properties of a specific field (e.g., processes.cms)
     #[arg(short = 'a', long = "analyze")]
     analyze_path: Option<String>,
 
@@ -23,137 +30,129 @@ struct CommandLineArguments {
 }
 
 fn main() {
-    let parsed_arguments = CommandLineArguments::parse();
-    let vfs = new_vfs_ref(VirtualFileSystem::new());
+    let arguments = CommandLineArguments::parse();
+    let virtual_file_system = new_virtual_file_system_reference(VirtualFileSystem::new());
 
-    match build_entire_coal_configuration_tree(
+    let build_result = build_entire_coal_configuration_tree(
         "main.yaml",
         "schema",
-        Arc::clone(&vfs),
-        parsed_arguments.validate_boolean,
-    ) {
-        Ok((fully_built_root_coal_tree_node, generated_diagnostic_errors_array)) => {
-            if let Some(ref path) = parsed_arguments.analyze_path {
-                analyze_target_path(path, Rc::clone(&fully_built_root_coal_tree_node));
+        Arc::clone(&virtual_file_system),
+        arguments.validate,
+    );
+
+    match build_result {
+        Ok((root_node, diagnostic_errors)) => {
+            if let Some(ref analyze_path) = arguments.analyze_path {
+                analyze_target_path(analyze_path, root_node);
                 return;
             }
 
-            // Pass the optional print path down to the formatting function
-            print_formatted_yaml_configuration(
-                Rc::clone(&fully_built_root_coal_tree_node),
-                parsed_arguments.print_path.as_deref(),
-            );
+            print_yaml_configuration(root_node, arguments.print_path.as_deref());
 
-            if parsed_arguments.validate_boolean {
-                process_and_display_validation_diagnostics(generated_diagnostic_errors_array);
+            if arguments.validate {
+                report_validation_diagnostics(diagnostic_errors);
             }
         }
-        Err(e) => {
-            handle_fatal_error(e);
+        Err(error) => {
+            report_fatal_error(error);
         }
     }
 }
 
-fn analyze_target_path(path: &str, fully_built_root_coal_tree_node: TreeRef) {
-    let formatted_path = if path.starts_with("ROOT.") {
+fn analyze_target_path(path: &str, root_node: TreeNodeReference) {
+    let absolute_path = if path.starts_with("ROOT.") {
         path.to_string()
     } else {
         format!("ROOT.{}", path)
     };
 
     if let Some(node) = find_target_node_using_reference_path(
-        &formatted_path,
-        Rc::clone(&fully_built_root_coal_tree_node),
-        Rc::clone(&fully_built_root_coal_tree_node),
+        &absolute_path,
+        Rc::clone(&root_node),
+        Rc::clone(&root_node),
     ) {
         display_analyzed_node_details(path, node);
     } else {
-        eprintln!("Error: Path '{}' not found in the resolved configuration.", path);
+        eprintln!(
+            "Error: Path '{}' not found in the resolved configuration.",
+            path
+        );
     }
 }
 
-fn display_analyzed_node_details(path: &str, node: TreeRef) {
-    let borrowed_node = node.borrow();
+fn display_analyzed_node_details(path: &str, node: TreeNodeReference) {
+    let node_borrowed = node.borrow();
     println!("--- Field Analysis: {} ---", path);
-    println!("Key:              {:?}", borrowed_node.key);
-    println!("Value:            {:?}", borrowed_node.value);
-    println!("Field Type:       {:?}", borrowed_node.field_type);
-    println!("Origin File:      {:?}", borrowed_node.origin);
-    println!("Schema Origin:    {:?}", borrowed_node.schema_origin);
-    println!("Optional:         {}", borrowed_node.optional);
-    println!("Allowed:          {}", borrowed_node.allowed);
-    println!("Default Value:    {:?}", borrowed_node.default_value);
-    println!("Allowed Values:   {:?}", borrowed_node.allowed_values);
-    if let Some(span) = &borrowed_node.span {
+    println!("Key:              {:?}", node_borrowed.key);
+    println!("Value:            {:?}", node_borrowed.value);
+    println!("Field Type:       {:?}", node_borrowed.field_type);
+    println!("Origin File:      {:?}", node_borrowed.origin);
+    println!("Schema Origin:    {:?}", node_borrowed.schema_origin);
+    println!("Optional:         {}", node_borrowed.optional);
+    println!("Allowed:          {}", node_borrowed.allowed);
+    println!("Default Value:    {:?}", node_borrowed.default_value);
+    println!("Allowed Values:   {:?}", node_borrowed.allowed_values);
+    if let Some(span) = &node_borrowed.span {
         println!("Physical Span:    Line {}, Col {}", span.line, span.col);
     } else {
         println!("Physical Span:    None");
     }
 }
 
-fn print_formatted_yaml_configuration(
-    fully_built_root_coal_tree_node: TreeRef,
-    print_path: Option<&str>,
-) {
-    let final_yaml_value = tree_to_yaml(fully_built_root_coal_tree_node);
+fn print_yaml_configuration(root_node: TreeNodeReference, print_path: Option<&str>) {
+    let full_yaml_value = tree_to_yaml(root_node);
 
-    let value_to_print = if let Some(path) = print_path {
-        let parts: Vec<&str> = path.split('.').collect();
-        let mut target_value = final_yaml_value.clone();
+    let value_to_print = match print_path {
+        Some(path) => extract_value_at_path(&full_yaml_value, path),
+        None => full_yaml_value,
+    };
 
-        // Traverse down to the requested nested value and stop there
-        for part in &parts {
-            if let serde_yaml::Value::Mapping(map) = target_value {
-                if let Some(next_val) = map.get(&serde_yaml::Value::String(part.to_string())) {
-                    target_value = next_val.clone();
-                } else {
-                    eprintln!("Error: Path '{}' not found for printing.", path);
-                    std::process::exit(1);
-                }
-            } else {
+    let formatted_yaml = serde_yaml::to_string(&value_to_print).unwrap();
+    println!("{}", formatted_yaml);
+}
+
+/// Walks the compiled YAML down a dotted path and returns the nested value,
+/// exiting with an error when any segment is missing.
+fn extract_value_at_path(full_yaml_value: &serde_yaml::Value, path: &str) -> serde_yaml::Value {
+    let mut current_value = full_yaml_value.clone();
+
+    for segment in path.split('.') {
+        let next_value = match current_value {
+            serde_yaml::Value::Mapping(ref mapping) => mapping.get(segment).cloned(),
+            _ => None,
+        };
+
+        match next_value {
+            Some(value) => current_value = value,
+            None => {
                 eprintln!("Error: Path '{}' not found for printing.", path);
                 std::process::exit(1);
             }
         }
-
-        // Return the extracted child node directly without re-wrapping
-        target_value
-    } else {
-        // Fallback to printing the whole tree if no path is given
-        final_yaml_value
-    };
-
-    let formatted_yaml_string = serde_yaml::to_string(&value_to_print).unwrap();
-    println!("{}", formatted_yaml_string);
-}
-
-fn process_and_display_validation_diagnostics(
-    generated_diagnostic_errors_array: Vec<DiagnosticError>,
-) {
-    if generated_diagnostic_errors_array.is_empty() {
-        eprintln!("Success: No validation errors found in the configuration tree.");
-    } else {
-        eprintln!(
-            "Found {} validation errors:\n",
-            generated_diagnostic_errors_array.len()
-        );
-        for diagnostic_error_object in generated_diagnostic_errors_array {
-            let location_string = if let Some(span) = &diagnostic_error_object.span_option {
-                format!("Line {}, Col {}", span.line, span.col)
-            } else {
-                String::from("Unknown Location")
-            };
-
-            eprintln!(
-                "{} at [{}]",
-                diagnostic_error_object.error_message_string, location_string
-            );
-        }
-        std::process::exit(1);
     }
+
+    current_value
 }
 
-fn handle_fatal_error(error: Box<dyn std::error::Error>) {
+fn report_validation_diagnostics(diagnostic_errors: Vec<DiagnosticError>) {
+    if diagnostic_errors.is_empty() {
+        eprintln!("Success: No validation errors found in the configuration tree.");
+        return;
+    }
+
+    eprintln!("Found {} validation errors:\n", diagnostic_errors.len());
+    for diagnostic_error in diagnostic_errors {
+        let location = match &diagnostic_error.span {
+            Some(span) => format!("Line {}, Col {}", span.line, span.col),
+            None => String::from("Unknown Location"),
+        };
+
+        eprintln!("{} at [{}]", diagnostic_error.message, location);
+    }
+    std::process::exit(1);
+}
+
+fn report_fatal_error(error: Box<dyn std::error::Error>) {
     eprintln!("\n❌ Fatal Error: {}\n", error);
     std::process::exit(1);
 }
