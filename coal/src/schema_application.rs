@@ -183,8 +183,33 @@ pub fn apply_schema_definition_to_tree_node(
             loaded_schemas,
             declarations,
         ),
-        _ => Ok(()),
+        _ => {
+            mark_schema_error(
+                &target_node,
+                "invalid schema definition -> expected a type name, allowed-value list, or mapping"
+                    .to_string(),
+            );
+            Ok(())
+        }
     }
+}
+
+/// Records a problem with the schema definition on the node. The field stays
+/// allowed (the configuration itself is not at fault) and the problem is
+/// reported as a "SchemaError" diagnostic.
+fn mark_schema_error(target_node: &TreeNodeReference, schema_error: String) {
+    let mut target_borrowed = target_node.borrow_mut();
+    target_borrowed.allowed = true;
+    target_borrowed.schema_error = Some(schema_error);
+}
+
+/// Type names a scalar schema definition may use.
+const KNOWN_TYPE_NAMES: [&str; 8] = [
+    "string", "integer", "float", "number", "bool", "list", "object", "any",
+];
+
+fn is_known_type_name(type_text: &str) -> bool {
+    KNOWN_TYPE_NAMES.contains(&type_text)
 }
 
 // =====================================================================
@@ -211,10 +236,19 @@ fn apply_scalar_type_schema(
     } else if type_text.contains("{{") {
         apply_jinja_allowed_values_schema(target_node, type_text, root_node);
         Ok(())
-    } else {
+    } else if is_known_type_name(type_text) {
         let mut target_borrowed = target_node.borrow_mut();
         target_borrowed.field_type = Some(type_text.to_string());
         target_borrowed.allowed = true;
+        Ok(())
+    } else {
+        mark_schema_error(
+            &target_node,
+            format!(
+                "unknown type '{}' -> expected one of {:?}",
+                type_text, KNOWN_TYPE_NAMES
+            ),
+        );
         Ok(())
     }
 }
@@ -265,12 +299,20 @@ fn apply_jinja_allowed_values_schema(
         target_borrowed.allowed = true;
     }
 
-    if let Some(allowed_values) = resolve_allowed_values_from_jinja_reference(
+    match resolve_allowed_values_from_jinja_reference(
         reference_text,
         Rc::clone(&target_node),
         root_node,
     ) {
-        target_node.borrow_mut().allowed_values = Some(allowed_values);
+        Some(allowed_values) => {
+            target_node.borrow_mut().allowed_values = Some(allowed_values);
+        }
+        None => {
+            target_node.borrow_mut().schema_error = Some(format!(
+                "could not resolve allowed values from '{}' -> the referenced path is missing or empty",
+                reference_text
+            ));
+        }
     }
 }
 
@@ -278,8 +320,11 @@ fn apply_jinja_allowed_values_schema(
 // SEQUENCE SCHEMAS (allowed-value lists and typed element mappings)
 // =====================================================================
 
-/// A sequence schema is either a list of allowed string values (when every
-/// element is a string) or a single mapping that types each list element.
+/// A sequence schema takes one of three forms:
+/// - a single type name or mapping (e.g. `[integer]` or `[{port: integer}]`)
+///   declaring a list whose elements all match that definition,
+/// - a list of scalar values declaring the allowed values of the field,
+/// - anything else, which is reported as a schema error.
 fn apply_sequence_schema(
     target_node: TreeNodeReference,
     schema_sequence: &[Value],
@@ -288,9 +333,18 @@ fn apply_sequence_schema(
     loaded_schemas: &SchemaCollection,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
-    let allowed_string_values = collect_allowed_string_values(schema_sequence);
+    if let Some(element_schema) = sequence_element_schema(schema_sequence) {
+        return apply_list_element_schema(
+            target_node,
+            element_schema,
+            schema_origin_name,
+            root_node,
+            loaded_schemas,
+            declarations,
+        );
+    }
 
-    if let Some(allowed_values) = allowed_string_values {
+    if let Some(allowed_values) = collect_allowed_scalar_values(schema_sequence) {
         let mut target_borrowed = target_node.borrow_mut();
         target_borrowed.field_type = Some("string".to_string());
         target_borrowed.allowed = true;
@@ -298,29 +352,57 @@ fn apply_sequence_schema(
         return Ok(());
     }
 
-    if schema_sequence.len() == 1 && schema_sequence[0].is_mapping() {
-        let children = {
-            let mut target_borrowed = target_node.borrow_mut();
-            target_borrowed.field_type = Some("list".to_string());
-            target_borrowed.allowed = true;
-            target_borrowed.children.clone()
-        };
+    mark_schema_error(
+        &target_node,
+        "invalid sequence schema -> expected a single element type (e.g. [integer]) or a list of allowed scalar values".to_string(),
+    );
+    Ok(())
+}
 
-        for child in children {
-            apply_schema_definition_to_tree_node(
-                child,
-                &schema_sequence[0],
-                schema_origin_name,
-                Rc::clone(&root_node),
-                loaded_schemas,
-                declarations,
-            )?;
-        }
+/// Returns the element definition when the sequence declares a typed list:
+/// a single mapping element, or a single string element naming a known type
+/// (so the unquoted YAML form `ports: [integer]` works like `"[integer]"`).
+fn sequence_element_schema(schema_sequence: &[Value]) -> Option<&Value> {
+    if schema_sequence.len() != 1 {
+        return None;
+    }
+
+    match &schema_sequence[0] {
+        Value::Mapping(_) => Some(&schema_sequence[0]),
+        Value::String(type_text) if is_known_type_name(type_text) => Some(&schema_sequence[0]),
+        _ => None,
+    }
+}
+
+fn apply_list_element_schema(
+    target_node: TreeNodeReference,
+    element_schema: &Value,
+    schema_origin_name: &str,
+    root_node: TreeNodeReference,
+    loaded_schemas: &SchemaCollection,
+    declarations: &SchemaDeclarations,
+) -> Result<(), Box<dyn Error>> {
+    let children = {
+        let mut target_borrowed = target_node.borrow_mut();
+        target_borrowed.field_type = Some("list".to_string());
+        target_borrowed.allowed = true;
+        target_borrowed.children.clone()
+    };
+
+    for child in children {
+        apply_schema_definition_to_tree_node(
+            child,
+            element_schema,
+            schema_origin_name,
+            Rc::clone(&root_node),
+            loaded_schemas,
+            declarations,
+        )?;
     }
     Ok(())
 }
 
-fn collect_allowed_string_values(schema_sequence: &[Value]) -> Option<Vec<Value>> {
+fn collect_allowed_scalar_values(schema_sequence: &[Value]) -> Option<Vec<Value>> {
     if schema_sequence.is_empty() {
         return None;
     }
@@ -328,7 +410,9 @@ fn collect_allowed_string_values(schema_sequence: &[Value]) -> Option<Vec<Value>
     let mut allowed_values = Vec::new();
     for item in schema_sequence {
         match item {
-            Value::String(text) => allowed_values.push(Value::String(text.clone())),
+            Value::String(_) | Value::Number(_) | Value::Bool(_) => {
+                allowed_values.push(item.clone())
+            }
             _ => return None,
         }
     }
@@ -666,12 +750,20 @@ fn apply_advanced_definition_to_node(
             node.borrow_mut().allowed_values = Some(allowed_values.clone());
         }
         Some(Value::String(jinja_reference)) => {
-            if let Some(allowed_values) = resolve_allowed_values_from_jinja_reference(
+            match resolve_allowed_values_from_jinja_reference(
                 jinja_reference,
                 Rc::clone(context_node),
                 Rc::clone(root_node),
             ) {
-                node.borrow_mut().allowed_values = Some(allowed_values);
+                Some(allowed_values) => {
+                    node.borrow_mut().allowed_values = Some(allowed_values);
+                }
+                None => {
+                    node.borrow_mut().schema_error = Some(format!(
+                        "could not resolve allowed values from '{}' -> the referenced path is missing or empty",
+                        jinja_reference
+                    ));
+                }
             }
         }
         _ => {}

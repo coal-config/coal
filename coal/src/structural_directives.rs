@@ -113,8 +113,8 @@ fn ancestor_key_at_level(node: &TreeNodeReference, levels_up: usize) -> Option<S
             .and_then(|weak_parent| weak_parent.upgrade())?;
         ancestor = parent;
     }
-    let ancestor_key = ancestor.borrow().key.clone();
-    ancestor_key
+
+    ancestor.borrow().key.clone()
 }
 
 /// Picks the next directive to evaluate among the node's children. Cloning

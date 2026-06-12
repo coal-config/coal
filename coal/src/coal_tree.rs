@@ -25,6 +25,10 @@ pub struct CoalTree {
     pub default_value: Option<Value>,
     pub allowed_values: Option<Vec<Value>>,
     pub allowed: bool,
+    /// A problem with the schema definition itself (unknown type name,
+    /// unresolvable reference, malformed definition) that applied to this
+    /// node. Reported as a "SchemaError" diagnostic.
+    pub schema_error: Option<String>,
     pub children: Vec<TreeNodeReference>,
     pub span: Option<Span>,
 }
@@ -42,6 +46,7 @@ impl Default for CoalTree {
             default_value: None,
             allowed_values: None,
             allowed: true,
+            schema_error: None,
             children: Vec::new(),
             span: None,
         }

@@ -92,6 +92,7 @@ fn display_analyzed_node_details(path: &str, node: TreeNodeReference) {
     println!("Allowed:          {}", node_borrowed.allowed);
     println!("Default Value:    {:?}", node_borrowed.default_value);
     println!("Allowed Values:   {:?}", node_borrowed.allowed_values);
+    println!("Schema Error:     {:?}", node_borrowed.schema_error);
     if let Some(span) = &node_borrowed.span {
         println!("Physical Span:    Line {}, Col {}", span.line, span.col);
     } else {

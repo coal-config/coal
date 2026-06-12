@@ -191,6 +191,7 @@ pub fn clone_tree_node_recursively(
         default_value: source.default_value.clone(),
         allowed_values: source.allowed_values.clone(),
         allowed: source.allowed,
+        schema_error: source.schema_error.clone(),
         children: Vec::new(),
         span: source.span.clone(),
     });

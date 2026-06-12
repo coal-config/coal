@@ -97,19 +97,35 @@ fn run_validation_phase(
     schema_directory_path: &str,
     diagnostic_errors: &mut Vec<DiagnosticError>,
 ) -> Result<(), Box<dyn Error>> {
-    let schemas = load_all_schema_files_from_directory(schema_directory_path, virtual_file_system)
-        .unwrap_or_default();
+    // Schema loading problems (unreadable directory, invalid YAML) must fail
+    // the build instead of silently validating against nothing.
+    let schemas = load_all_schema_files_from_directory(schema_directory_path, virtual_file_system)?;
 
-    if let Some(main_schema) = schemas.get("main") {
-        apply_schema_definition_to_tree_node(
-            Rc::clone(&root_node),
-            main_schema,
-            "main",
-            Rc::clone(&root_node),
-            &schemas,
-            &HashMap::new(),
-        )?;
-    }
+    let Some(main_schema) = schemas.get("main") else {
+        // Validation was requested but there is nothing to validate against.
+        // Report it as a diagnostic so both the CLI (non-zero exit) and the
+        // language server surface it.
+        diagnostic_errors.push(DiagnosticError {
+            error_type: "SchemaError".to_string(),
+            field_path: String::new(),
+            file_origin: schema_directory_path.to_string(),
+            message: format!(
+                "[{}] no 'main' schema found in schema directory -> nothing to validate against",
+                schema_directory_path
+            ),
+            span: Some(Span { line: 1, col: 1 }),
+        });
+        return Ok(());
+    };
+
+    apply_schema_definition_to_tree_node(
+        Rc::clone(&root_node),
+        main_schema,
+        "main",
+        Rc::clone(&root_node),
+        &schemas,
+        &HashMap::new(),
+    )?;
 
     generate_diagnostics_for_entire_tree(root_node, diagnostic_errors);
     Ok(())

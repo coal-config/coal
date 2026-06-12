@@ -28,6 +28,7 @@ pub fn generate_diagnostics_for_entire_tree(
             .clone()
             .unwrap_or_else(|| "Unknown Origin".to_string());
 
+        check_schema_definition_valid(&node_borrowed, &path, &origin, diagnostic_errors);
         check_field_allowed(&node_borrowed, &path, &origin, diagnostic_errors);
         check_mandatory_field_present(&node_borrowed, &path, &origin, diagnostic_errors);
 
@@ -40,6 +41,23 @@ pub fn generate_diagnostics_for_entire_tree(
     let children = current_node.borrow().children.clone();
     for child in children {
         generate_diagnostics_for_entire_tree(child, diagnostic_errors);
+    }
+}
+
+fn check_schema_definition_valid(
+    node: &CoalTree,
+    path: &str,
+    origin: &str,
+    diagnostic_errors: &mut Vec<DiagnosticError>,
+) {
+    if let Some(ref schema_error) = node.schema_error {
+        diagnostic_errors.push(create_diagnostic_error(
+            "SchemaError",
+            path,
+            origin,
+            format!("schema: {}", schema_error),
+            node.span.clone(),
+        ));
     }
 }
 
