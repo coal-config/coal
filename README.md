@@ -335,9 +335,32 @@ During parsing, COAL automatically injects these string replacements:
 | Variable | Description |
 | --- | --- |
 | `$filename` | Replaced with the base name (stem) of the file the node originated from. |
-| `$parent` | Replaced with the key of the node's immediate parent. |
+| `$parent` | Replaced with the key of the node's immediate parent (same as `$parent1`). |
+| `$parentN` | Replaced with the key of the ancestor `N` levels up (e.g. `$parent2` is the grandparent). Placeholders that reach past the tree root are left untouched. |
 | `$id` | Generates a sequentially incrementing integer, resolved **before** inheritance/overriding. |
 | `$id_after` | Generates a sequentially incrementing integer, resolved **at the very end** of the pipeline. |
+
+**`main.yaml`**
+
+```yaml
+environments:
+  production:
+    servers:
+      web_server:
+        name: "$parent"
+        environment: "$parent3"
+```
+
+**`Compiled Output`**
+
+```yaml
+environments:
+  production:
+    servers:
+      web_server:
+        name: "web_server"
+        environment: "production"
+```
 
 ### ID Resolution Timing
 

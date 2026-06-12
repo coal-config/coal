@@ -1,0 +1,10 @@
+environments:
+  production:
+    servers:
+      web_server:
+        name: $parent
+        same_as_name: $parent1
+        environment: $parent3
+        group: $parent2
+        label: "$parent2-$parent1"
+        too_far: $parent9
