@@ -84,7 +84,7 @@ impl Backend {
         let mut diags_to_add = Vec::new();
 
         {
-            let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&vfs), true);
+            let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&vfs), true, &[]);
 
             match pipeline_result {
                 Ok((_, coal_diagnostics)) => {
@@ -348,7 +348,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&self.vfs), true);
+        let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&self.vfs), true, &[]);
 
         if let Ok((root, _)) = pipeline_result {
             let mut items = Vec::new();
@@ -477,7 +477,7 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&self.vfs), true);
+        let pipeline_result = build_entire_coal_configuration_tree("main.yaml", "schema", Arc::clone(&self.vfs), true, &[]);
 
         if let Ok((root, _)) = pipeline_result {
             let context_node = find_node_at_line(Rc::clone(&root), (position.line + 1) as usize, &file_path)

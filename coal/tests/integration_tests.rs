@@ -88,6 +88,7 @@ fn run_single_test_case(test_case_directory: &Path, validate: bool) -> Result<()
         schema_directory.to_str().unwrap(),
         virtual_file_system,
         validate,
+        &[],
     )
     .map_err(|error| format!("failed to build: {}", error))?;
 

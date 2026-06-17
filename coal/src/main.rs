@@ -1,6 +1,7 @@
 use clap::Parser;
 use coal::coal_tree::tree_to_yaml;
 use coal::diagnostics::DiagnosticError;
+use coal::parameter_overrides::{ParameterOverride, parse_parameter_override};
 use coal::reference_resolution::find_target_node_using_reference_path;
 use coal::tree_builder::build_entire_coal_configuration_tree;
 use coal::type_aliases::{TreeNodeReference, new_virtual_file_system_reference};
@@ -24,6 +25,11 @@ struct CommandLineArguments {
     #[arg(short = 'a', long = "analyze")]
     analyze_path: Option<String>,
 
+    /// Pin a value that the configuration cannot override (repeatable).
+    /// Example: -p environment.paths.config=/home/config
+    #[arg(short = 'p', long = "param", value_name = "PATH=VALUE")]
+    parameters: Vec<String>,
+
     /// Optional path to print a specific part of the configuration tree (e.g., environments.production)
     #[arg(index = 1)]
     print_path: Option<String>,
@@ -33,11 +39,17 @@ fn main() {
     let arguments = CommandLineArguments::parse();
     let virtual_file_system = new_virtual_file_system_reference(VirtualFileSystem::new());
 
+    let parameter_overrides = match parse_all_parameter_overrides(&arguments.parameters) {
+        Ok(parameter_overrides) => parameter_overrides,
+        Err(error) => report_fatal_error(error),
+    };
+
     let build_result = build_entire_coal_configuration_tree(
         "main.yaml",
         "schema",
         Arc::clone(&virtual_file_system),
         arguments.validate,
+        &parameter_overrides,
     );
 
     match build_result {
@@ -153,7 +165,16 @@ fn report_validation_diagnostics(diagnostic_errors: Vec<DiagnosticError>) {
     std::process::exit(1);
 }
 
-fn report_fatal_error(error: Box<dyn std::error::Error>) {
+fn parse_all_parameter_overrides(
+    raw_parameters: &[String],
+) -> Result<Vec<ParameterOverride>, Box<dyn std::error::Error>> {
+    raw_parameters
+        .iter()
+        .map(|raw_parameter| parse_parameter_override(raw_parameter))
+        .collect()
+}
+
+fn report_fatal_error(error: Box<dyn std::error::Error>) -> ! {
     eprintln!("\n❌ Fatal Error: {}\n", error);
     std::process::exit(1);
 }

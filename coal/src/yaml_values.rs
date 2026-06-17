@@ -5,7 +5,7 @@ use serde_yaml::Value;
 /// text into booleans and numbers where possible.
 pub fn convert_marked_yaml_node_to_value(node: &Node) -> Value {
     match node {
-        Node::Scalar(scalar) => parse_scalar_text(scalar.as_str()),
+        Node::Scalar(scalar) => parse_scalar_value(scalar.as_str()),
         Node::Sequence(sequence) => Value::Sequence(
             sequence
                 .iter()
@@ -25,7 +25,11 @@ pub fn convert_marked_yaml_node_to_value(node: &Node) -> Value {
     }
 }
 
-fn parse_scalar_text(text: &str) -> Value {
+/// Parses a scalar string into a typed value: a boolean, then an integer,
+/// then a float, otherwise the original string. Text such as a Jinja
+/// expression (`{{ ... }}`) is none of those and is preserved as a string so
+/// it can be resolved later.
+pub fn parse_scalar_value(text: &str) -> Value {
     if let Ok(boolean) = text.parse::<bool>() {
         Value::Bool(boolean)
     } else if let Ok(integer) = text.parse::<i64>() {

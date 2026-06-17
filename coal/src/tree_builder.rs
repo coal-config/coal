@@ -2,6 +2,7 @@ use crate::coal_tree::{CoalTree, Span};
 use crate::diagnostics::{DiagnosticError, generate_diagnostics_for_entire_tree};
 use crate::identifier_directives::{IdentifierCounters, resolve_identifier_directives_depth_first};
 use crate::include_directives::process_include_directives_depth_first;
+use crate::parameter_overrides::{ParameterOverride, apply_parameter_overrides};
 use crate::reference_resolution::resolve_all_jinja_values_in_tree;
 use crate::schema_application::{
     apply_schema_definition_to_tree_node, load_all_schema_files_from_directory,
@@ -19,17 +20,30 @@ use std::error::Error;
 use std::rc::Rc;
 use std::sync::Arc;
 
-/// Runs the full compilation pipeline: include expansion, structural
-/// directives, value synchronization, Jinja resolution, optional schema
-/// validation, directive cleanup, and alphabetical ordering. Returns the
-/// fully built tree together with any validation diagnostics.
+/// Runs the full compilation pipeline: command-line parameters, include
+/// expansion, structural directives, value synchronization, Jinja resolution,
+/// optional schema validation, directive cleanup, and alphabetical ordering.
+/// Returns the fully built tree together with any validation diagnostics.
+///
+/// `parameter_overrides` are values supplied on the command line. They are
+/// seeded into the tree before includes and structural directives run, so a
+/// value such as an `environment` can drive the rest of the build — for
+/// example through Jinja references inside `$include` paths or `$inherit`
+/// targets. Once seeded they behave like any value declared in the
+/// configuration files.
 pub fn build_entire_coal_configuration_tree(
     entry_path: &str,
     schema_directory_path: &str,
     virtual_file_system: VirtualFileSystemReference,
     validate: bool,
+    parameter_overrides: &[ParameterOverride],
 ) -> Result<(TreeNodeReference, Vec<DiagnosticError>), Box<dyn Error>> {
     let root_node = parse_root_document(entry_path, Arc::clone(&virtual_file_system))?;
+
+    // Phase 0: Seed command-line parameters before anything else so they can
+    // be referenced (via Jinja) by include paths and inheritance targets
+    // while the tree is still being assembled.
+    apply_parameter_overrides(Rc::clone(&root_node), parameter_overrides);
 
     // Phase 1: Expansion (includes).
     process_include_directives_depth_first(

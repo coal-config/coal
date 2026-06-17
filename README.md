@@ -74,6 +74,7 @@ COAL provides a straightforward CLI for compiling and inspecting your configurat
 * **`coal`** — Compiles the `main.yaml` file in the current directory, resolves all directives and Jinja templates, and prints the final flattened YAML to standard output.
 * **`coal --validate`** (or `-v`) — Compiles the tree and runs it against the schema definitions in the `schema/` directory. If errors are found, it outputs a detailed diagnostic report to `stderr` and exits with a non-zero code.
 * **`coal --analyze <path>`** (or `-a`) — Dumps the internal Abstract Syntax Tree (AST) properties of a specific field (e.g., `coal -a processes.cms`). Displays the key, value, resolved schema type, origin file, allowed values, and physical line/column span.
+* **`coal --param <path>=<value>`** (or `-p`) — Sets a value at a dotted path, seeded into the tree before the build so it can drive includes and inheritance. Repeatable. See [Command-Line Parameters](#command-line-parameters--param--p) below.
 
 ---
 
@@ -83,9 +84,68 @@ In `/example` there is an example coal confuration project. Run `coal` in this d
 
 ---
 
+## Command-Line Parameters (`--param` / `-p`)
+
+The `-p` flag sets a value at a dotted path from the command line. The value is seeded into the tree **before** anything else is processed, so it can be used to *build* the rest of the configuration. This is useful for injecting an environment, a deployment region, or any other build-time input without editing the files.
+
+```
+coal -p environment.paths.config="/home/config"
+```
+
+The flag is repeatable, so you can set several values in one run:
+
+```
+coal -p environment.paths.config="/home/config" -p environment.region="eu-west"
+```
+
+**Syntax.** The argument is `path=value`. The path is dot-separated (an optional leading `ROOT.` is accepted). The value is everything after the first `=`, so values may themselves contain `=` (e.g. query strings). Missing intermediate objects along the path are created automatically, and if the target already exists its previous value — even a whole sub-tree — is replaced.
+
+**Typing.** The value is parsed with the same rules as a YAML scalar: `true`/`false` become booleans, whole numbers become integers, decimals become floats, and everything else stays a string. So `-p service.port=8080` sets an integer. When `--validate` is used, parameters are validated against the schema like any other field (reported with an origin of `<command-line>`).
+
+**Precedence.** A parameter behaves exactly as if its value had been written in the configuration at that path before the build started. It is *not* given any special authority: a later `$override` or an included file can still change it, just as they could change a value declared in the files. (`$inherit`, which keeps local values, will leave it untouched.)
+
+### Parameters drive the build
+
+Because a parameter is seeded before includes and inheritance are processed, it can decide *what* gets built. The common case is selecting an environment with a single parameter that chooses which files are included and which defaults are inherited.
+
+```yaml
+# main.yaml
+environment: dev   # default; replaced by -p environment=prod
+active:
+  $include: "./envs/{{ ROOT.environment }}.yaml"
+app:
+  $inherit: "ROOT.{{ ROOT.environment }}_defaults"
+```
+
+```
+coal -p environment=prod
+```
+
+Here `environment` is set before the include phase, so `./envs/prod.yaml` is the file that gets included and `ROOT.prod_defaults` is the node that gets inherited.
+
+### Parameters and Jinja
+
+Because parameters are seeded before Jinja templating, they integrate with it consistently:
+
+1. **A parameter may contain a Jinja reference.** It is resolved against the final tree:
+
+    ```
+    coal -p log_directory="{{ ROOT.base_directory }}/logs"
+    ```
+
+2. **References elsewhere see the parameter value.** If another field is `{{ ROOT.base }}` and you set `base`, that field resolves to the parameter value, not the value originally in the file.
+
+If a parameter's Jinja reference cannot be resolved (or forms a reference cycle), it is left in place as a literal string, exactly like any other unresolvable template.
+
+---
+
 ## The Tree Building Pipeline
 
 COAL processes configurations in a strict, multi-phase pipeline to ensure dependencies, structural morphing, and templates are resolved in the correct order.
+
+### 0. Command-Line Parameters (seed)
+
+Before anything else, any values supplied with `-p` (see [Command-Line Parameters](#command-line-parameters--param--p)) are seeded into the tree, so they can drive the rest of the build — for example an `environment` value referenced by Jinja inside `$include` paths or `$inherit` targets. From this point on they behave like any value declared in the configuration.
 
 ### 1. Expansion (Includes & AST Directives)
 
