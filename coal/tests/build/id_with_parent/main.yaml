@@ -1,0 +1,18 @@
+# The $id counter name resolves "$parent" relative to the $id field itself,
+# so "$parent" is the node that holds the $id.
+#
+# alpha_db and beta_db use the same placeholder text but different holders, so
+# they resolve to the distinct counter names "alpha_db" and "beta_db" and each
+# starts an independent counter at 1. (If "$parent" were left as a literal
+# string they would share one counter and read 1 and 2.)
+alpha_db:
+  $id: "$parent"
+beta_db:
+  $id: "$parent1"
+# $parent2 walks two levels up from the $id field, so both of these resolve to
+# the same name "grandparents" and share one counter.
+grandparents:
+  east:
+    $id: "$parent2"
+  west:
+    $id: "$parent2"

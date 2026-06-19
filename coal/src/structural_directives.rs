@@ -5,15 +5,14 @@ use crate::identifier_directives::{
 };
 use crate::reference_resolution::{
     find_target_node_using_reference_path, resolve_jinja_reference_string,
+    resolve_parent_placeholders,
 };
 use crate::tree_operations::{add_or_replace_child_node_in_parent, clone_tree_node_recursively};
 use crate::type_aliases::{TreeNodeReference, new_tree_node_reference};
 use crate::yaml_values::extract_string_list_from_value;
-use regex::Regex;
 use serde_yaml::Value;
 use std::error::Error;
 use std::rc::Rc;
-use std::sync::OnceLock;
 
 /// Traverses the tree depth-first and evaluates every structural directive
 /// ($inherit, $override, $extend, $append, $select, $each) along with the
@@ -61,60 +60,18 @@ pub fn process_structural_directives_depth_first(
     Ok(())
 }
 
-static PARENT_PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Matches "$parent" optionally followed by the number of levels to walk up
-/// (e.g. "$parent", "$parent2", "$parent10").
-fn parent_placeholder_regex() -> &'static Regex {
-    PARENT_PLACEHOLDER_REGEX.get_or_init(|| Regex::new(r"\$parent(\d*)").unwrap())
-}
-
-/// Replaces every "$parentN" placeholder inside the node's string value with
-/// the key of the ancestor N levels up. Bare "$parent" is equivalent to
-/// "$parent1" (the immediate parent). Placeholders that reach past the tree
-/// root are left untouched.
+/// Resolves "$parentN" placeholders inside the node's own string value,
+/// relative to the node itself (so "$parent" is the node's immediate parent).
 fn resolve_parent_placeholders_in_node_value(node: TreeNodeReference) {
     let value_text = match &node.borrow().value {
         Some(Value::String(text)) if text.contains("$parent") => text.clone(),
         _ => return,
     };
 
-    let resolved_text =
-        parent_placeholder_regex().replace_all(&value_text, |captures: &regex::Captures| {
-            let levels_up = parse_parent_placeholder_levels(&captures[1]);
-            levels_up
-                .and_then(|levels_up| ancestor_key_at_level(&node, levels_up))
-                .unwrap_or_else(|| captures[0].to_string())
-        });
-
+    let resolved_text = resolve_parent_placeholders(&value_text, &node);
     if resolved_text != value_text {
-        node.borrow_mut().value = Some(Value::String(resolved_text.into_owned()));
+        node.borrow_mut().value = Some(Value::String(resolved_text));
     }
-}
-
-/// An empty suffix means one level up; "0" is meaningless and left alone.
-fn parse_parent_placeholder_levels(digits: &str) -> Option<usize> {
-    if digits.is_empty() {
-        return Some(1);
-    }
-    match digits.parse::<usize>() {
-        Ok(0) | Err(_) => None,
-        Ok(levels_up) => Some(levels_up),
-    }
-}
-
-fn ancestor_key_at_level(node: &TreeNodeReference, levels_up: usize) -> Option<String> {
-    let mut ancestor = Rc::clone(node);
-    for _ in 0..levels_up {
-        let parent = ancestor
-            .borrow()
-            .parent
-            .as_ref()
-            .and_then(|weak_parent| weak_parent.upgrade())?;
-        ancestor = parent;
-    }
-
-    ancestor.borrow().key.clone()
 }
 
 /// Picks the next directive to evaluate among the node's children. Cloning

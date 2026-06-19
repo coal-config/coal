@@ -104,6 +104,59 @@ fn traverse_path_segments(start_node: TreeNodeReference, path: &str) -> Option<T
 }
 
 // =====================================================================
+// $parent PLACEHOLDERS
+// =====================================================================
+
+static PARENT_PLACEHOLDER_REGEX: OnceLock<Regex> = OnceLock::new();
+
+/// Matches "$parent" optionally followed by the number of levels to walk up
+/// (e.g. "$parent", "$parent2", "$parent10").
+fn parent_placeholder_regex() -> &'static Regex {
+    PARENT_PLACEHOLDER_REGEX.get_or_init(|| Regex::new(r"\$parent(\d*)").unwrap())
+}
+
+/// Replaces every "$parentN" placeholder in `text` with the key of the
+/// ancestor `N` levels above `node`. Bare "$parent" is equivalent to
+/// "$parent1" (the immediate parent). Placeholders that reach past the tree
+/// root are left in place. Resolution is anchored at `node`, so the caller
+/// chooses the field the placeholders are relative to.
+pub fn resolve_parent_placeholders(text: &str, node: &TreeNodeReference) -> String {
+    if !text.contains("$parent") {
+        return text.to_string();
+    }
+
+    parent_placeholder_regex()
+        .replace_all(
+            text,
+            |captures: &regex::Captures| match parse_parent_placeholder_levels(&captures[1]) {
+                Some(levels_up) => ancestor_key_at_level(node, levels_up)
+                    .unwrap_or_else(|| captures[0].to_string()),
+                None => captures[0].to_string(),
+            },
+        )
+        .into_owned()
+}
+
+/// An empty suffix means one level up; "0" is meaningless and left alone.
+fn parse_parent_placeholder_levels(digits: &str) -> Option<usize> {
+    if digits.is_empty() {
+        return Some(1);
+    }
+    match digits.parse::<usize>() {
+        Ok(0) | Err(_) => None,
+        Ok(levels_up) => Some(levels_up),
+    }
+}
+
+fn ancestor_key_at_level(node: &TreeNodeReference, levels_up: usize) -> Option<String> {
+    let mut ancestor = Rc::clone(node);
+    for _ in 0..levels_up {
+        ancestor = get_parent_node(&ancestor)?;
+    }
+    ancestor.borrow().key.clone()
+}
+
+// =====================================================================
 // JINJA STRING RESOLUTION
 // =====================================================================
 

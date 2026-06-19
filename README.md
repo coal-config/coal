@@ -424,7 +424,7 @@ environments:
 
 ### ID Resolution Timing
 
-Both ID variants share the same counter pool: a counter name like `"db_counters"` keeps incrementing no matter which variant references it. The counter name may contain Jinja templates (e.g. `$id: "{{ ROOT.pool_name }}_pool"`), which are resolved against the tree before the counter is looked up. The difference between the two variants is *when* the value is locked in:
+Both ID variants share the same counter pool: a counter name like `"db_counters"` keeps incrementing no matter which variant references it. The counter name may contain `$parent`/`$parentN` placeholders (resolved relative to the `$id` field, so `$parent` is the node that holds the `$id`) and Jinja templates (e.g. `$id: "{{ ROOT.pool_name }}_pool"`); both are resolved before the counter is looked up. So `$id: "$parent"` gives each holder its own counter. The difference between the two variants is *when* the value is locked in:
 
 * **`$id`** resolves during structural processing. Whenever a node is the target of `$inherit` or `$override`, every `$id` inside that target is resolved **just before** it is cloned — so the inheritor receives the actual ID value instead of the tag, and the target plus all of its inheritors share the same number.
 * **`$id_after`** resolves at the very end, once the whole tree is built and all Jinja templates are resolved. The tag survives cloning, so **every occurrence — including every clone** made by `$each`, `$inherit`, or `$override` — receives its own unique number.
