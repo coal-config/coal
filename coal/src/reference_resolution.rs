@@ -203,17 +203,38 @@ fn scalar_value_as_string(value: &Option<Value>) -> String {
 
 /// Resolves all Jinja templates in the tree. Values that consist of exactly
 /// one expression adopt the referenced node's full structure; values with
-/// embedded expressions receive string substitution. Reference cycles are
-/// detected via a visited-path set and left unresolved.
+/// embedded expressions receive string substitution.
+///
+/// Reference cycles (a field that resolves, directly or transitively, back to
+/// itself) are detected via a visited-path set: the loop is broken, the
+/// offending template is left unresolved, and a warning naming each cyclic
+/// reference is printed once.
 pub fn resolve_all_jinja_values_in_tree(node: TreeNodeReference, root_node: TreeNodeReference) {
     let mut visited_paths = HashSet::new();
-    resolve_jinja_values_recursively(node, root_node, &mut visited_paths);
+    let mut circular_references = HashSet::new();
+    resolve_jinja_values_recursively(
+        node,
+        root_node,
+        &mut visited_paths,
+        &mut circular_references,
+    );
+    report_circular_references(&circular_references);
+}
+
+fn report_circular_references(circular_references: &HashSet<String>) {
+    for reference in circular_references {
+        eprintln!(
+            "Warning: circular Jinja reference left unresolved ({}).",
+            reference
+        );
+    }
 }
 
 fn resolve_jinja_values_recursively(
     node: TreeNodeReference,
     root_node: TreeNodeReference,
     visited_paths: &mut HashSet<String>,
+    circular_references: &mut HashSet<String>,
 ) {
     let current_path = node.borrow().get_path();
     if visited_paths.contains(&current_path) {
@@ -221,13 +242,14 @@ fn resolve_jinja_values_recursively(
     }
     visited_paths.insert(current_path.clone());
 
-    resolve_jinja_values_in_children(&node, &root_node, visited_paths);
+    resolve_jinja_values_in_children(&node, &root_node, visited_paths, circular_references);
 
-    let substitution_occurred = resolve_jinja_value_of_node(&node, &root_node, visited_paths);
+    let substitution_occurred =
+        resolve_jinja_value_of_node(&node, &root_node, visited_paths, circular_references);
 
     visited_paths.remove(&current_path);
     if substitution_occurred {
-        resolve_jinja_values_recursively(node, root_node, visited_paths);
+        resolve_jinja_values_recursively(node, root_node, visited_paths, circular_references);
     }
 }
 
@@ -235,10 +257,16 @@ fn resolve_jinja_values_in_children(
     node: &TreeNodeReference,
     root_node: &TreeNodeReference,
     visited_paths: &mut HashSet<String>,
+    circular_references: &mut HashSet<String>,
 ) {
     let children = node.borrow().children.clone();
     for child in children {
-        resolve_jinja_values_recursively(child, Rc::clone(root_node), visited_paths);
+        resolve_jinja_values_recursively(
+            child,
+            Rc::clone(root_node),
+            visited_paths,
+            circular_references,
+        );
     }
 }
 
@@ -246,6 +274,7 @@ fn resolve_jinja_value_of_node(
     node: &TreeNodeReference,
     root_node: &TreeNodeReference,
     visited_paths: &mut HashSet<String>,
+    circular_references: &mut HashSet<String>,
 ) -> bool {
     let node_text = node
         .borrow()
@@ -256,9 +285,21 @@ fn resolve_jinja_value_of_node(
 
     if let Some(text) = node_text {
         if let Some(captures) = jinja_exact_match_regex().captures(&text) {
-            return substitute_exact_jinja_reference(node, root_node, visited_paths, &captures[1]);
+            return substitute_exact_jinja_reference(
+                node,
+                root_node,
+                visited_paths,
+                circular_references,
+                &captures[1],
+            );
         } else if jinja_expression_regex().is_match(&text) {
-            return substitute_embedded_jinja_references(node, root_node, visited_paths, &text);
+            return substitute_embedded_jinja_references(
+                node,
+                root_node,
+                visited_paths,
+                circular_references,
+                &text,
+            );
         }
     }
     false
@@ -268,6 +309,7 @@ fn substitute_exact_jinja_reference(
     node: &TreeNodeReference,
     root_node: &TreeNodeReference,
     visited_paths: &mut HashSet<String>,
+    circular_references: &mut HashSet<String>,
     reference_path: &str,
 ) -> bool {
     let reference_path = reference_path.trim();
@@ -281,17 +323,42 @@ fn substitute_exact_jinja_reference(
                 Rc::clone(&target_node),
                 Rc::clone(root_node),
                 visited_paths,
+                circular_references,
             );
-            adopt_target_node_structure(node, &target_node);
-            return true;
+            // Only report progress (and trigger a re-resolution pass) when the
+            // value actually changed. Adopting a target that is itself an
+            // unresolved template copies an identical value, and reporting
+            // that as progress would loop forever on mutual references such as
+            // `b -> c -> b`.
+            return adopt_target_node_structure(node, &target_node);
         }
+
+        // The target is already being resolved further up the call stack, so
+        // following it would loop. Break here and record the cycle.
+        record_circular_reference(node, reference_path, circular_references);
     }
     false
 }
 
+fn record_circular_reference(
+    node: &TreeNodeReference,
+    reference_path: &str,
+    circular_references: &mut HashSet<String>,
+) {
+    let node_path = node.borrow().get_path();
+    let field = if node_path.is_empty() {
+        "<root>".to_string()
+    } else {
+        node_path
+    };
+    circular_references.insert(format!("'{}' -> '{}'", field, reference_path));
+}
+
 /// Copies the target node's value and deep-cloned children onto the node,
-/// replacing its previous contents.
-fn adopt_target_node_structure(node: &TreeNodeReference, target_node: &TreeNodeReference) {
+/// replacing its previous contents. Returns whether the node's value actually
+/// changed, which the caller uses to decide if another resolution pass could
+/// make further progress.
+fn adopt_target_node_structure(node: &TreeNodeReference, target_node: &TreeNodeReference) -> bool {
     let (target_value, target_children) = {
         let target_borrowed = target_node.borrow();
         (
@@ -299,6 +366,8 @@ fn adopt_target_node_structure(node: &TreeNodeReference, target_node: &TreeNodeR
             target_borrowed.children.clone(),
         )
     };
+
+    let value_changed = node.borrow().value != target_value;
 
     {
         let mut node_borrowed = node.borrow_mut();
@@ -310,12 +379,15 @@ fn adopt_target_node_structure(node: &TreeNodeReference, target_node: &TreeNodeR
         let cloned_child = clone_tree_node_recursively(child, Rc::clone(node));
         node.borrow_mut().children.push(cloned_child);
     }
+
+    value_changed
 }
 
 fn substitute_embedded_jinja_references(
     node: &TreeNodeReference,
     root_node: &TreeNodeReference,
     visited_paths: &mut HashSet<String>,
+    circular_references: &mut HashSet<String>,
     text: &str,
 ) -> bool {
     for captures in jinja_expression_regex().captures_iter(text) {
@@ -331,7 +403,10 @@ fn substitute_embedded_jinja_references(
                     Rc::clone(&target_node),
                     Rc::clone(root_node),
                     visited_paths,
+                    circular_references,
                 );
+            } else {
+                record_circular_reference(node, reference_path, circular_references);
             }
         }
     }

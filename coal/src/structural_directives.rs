@@ -17,17 +17,63 @@ use std::rc::Rc;
 /// Traverses the tree depth-first and evaluates every structural directive
 /// ($inherit, $override, $extend, $append, $select, $each) along with the
 /// "$parent"/"$parentN" placeholders and "$id" identifier directives.
+/// Maximum depth of nested inheritance. A chain longer than this is almost
+/// certainly an `$inherit`/`$override` cycle (two nodes that inherit from each
+/// other), which would otherwise recurse until the stack overflows.
+const MAX_INHERITANCE_DEPTH: usize = 64;
+
+/// Maximum number of structural directives expanded on a single node. A
+/// runaway count indicates a directive that keeps re-creating itself, such as
+/// an `$extend`/`$append` cycle, which would otherwise loop forever.
+const MAX_DIRECTIVES_PER_NODE: usize = 1024;
+
 pub fn process_structural_directives_depth_first(
     current_node: TreeNodeReference,
     root_node: TreeNodeReference,
     identifier_counters: &mut IdentifierCounters,
 ) -> Result<(), Box<dyn Error>> {
+    expand_structural_directives(current_node, root_node, identifier_counters, 0)
+}
+
+/// `inheritance_depth` counts how many nested `$inherit`/`$override`
+/// expansions deep the current call is. It grows only when an inheritance
+/// target is expanded (not during ordinary tree traversal), so legitimately
+/// wide or deep trees are unaffected.
+fn expand_structural_directives(
+    current_node: TreeNodeReference,
+    root_node: TreeNodeReference,
+    identifier_counters: &mut IdentifierCounters,
+    inheritance_depth: usize,
+) -> Result<(), Box<dyn Error>> {
+    if inheritance_depth > MAX_INHERITANCE_DEPTH {
+        return Err(format!(
+            "Possible $inherit/$override cycle: inheritance nesting exceeded {} at '{}'. \
+             Check for nodes that inherit from each other.",
+            MAX_INHERITANCE_DEPTH,
+            current_node.borrow().get_path()
+        )
+        .into());
+    }
+
+    let mut directives_expanded = 0;
     while let Some(directive_node) = find_next_structural_directive(&current_node) {
+        directives_expanded += 1;
+        if directives_expanded > MAX_DIRECTIVES_PER_NODE {
+            return Err(format!(
+                "Too many structural directives expanded on '{}' (over {}); \
+                 possible $extend/$append cycle.",
+                current_node.borrow().get_path(),
+                MAX_DIRECTIVES_PER_NODE
+            )
+            .into());
+        }
+
         execute_structural_directive(
             Rc::clone(&directive_node),
             Rc::clone(&current_node),
             Rc::clone(&root_node),
             identifier_counters,
+            inheritance_depth,
         )?;
 
         current_node
@@ -50,10 +96,11 @@ pub fn process_structural_directives_depth_first(
 
     let children = current_node.borrow().children.clone();
     for child in children {
-        process_structural_directives_depth_first(
+        expand_structural_directives(
             child,
             Rc::clone(&root_node),
             identifier_counters,
+            inheritance_depth,
         )?;
     }
 
@@ -97,6 +144,7 @@ fn execute_structural_directive(
     parent_node: TreeNodeReference,
     root_node: TreeNodeReference,
     identifier_counters: &mut IdentifierCounters,
+    inheritance_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     let directive_key = directive_node.borrow().key.clone().unwrap();
 
@@ -107,6 +155,7 @@ fn execute_structural_directive(
             root_node,
             false,
             identifier_counters,
+            inheritance_depth,
         ),
         "$override" => handle_inherit_directive(
             directive_node,
@@ -114,6 +163,7 @@ fn execute_structural_directive(
             root_node,
             true,
             identifier_counters,
+            inheritance_depth,
         ),
         "$extend" => handle_extend_directive(directive_node, parent_node, root_node),
         "$append" => handle_append_directive(directive_node, parent_node),
@@ -342,14 +392,16 @@ fn handle_inherit_directive(
     root_node: TreeNodeReference,
     is_override: bool,
     identifier_counters: &mut IdentifierCounters,
+    inheritance_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     // Inline form: the directive holds template children directly instead of
     // a reference path.
     if !directive_node.borrow().children.is_empty() {
-        process_structural_directives_depth_first(
+        expand_structural_directives(
             Rc::clone(&directive_node),
             Rc::clone(&root_node),
             identifier_counters,
+            inheritance_depth + 1,
         )?;
         apply_children_to_parent(directive_node, parent_node, is_override);
         return Ok(());
@@ -385,10 +437,11 @@ fn handle_inherit_directive(
             );
 
             let detached_clone = clone_target_for_processing(target_node, &root_node);
-            process_structural_directives_depth_first(
+            expand_structural_directives(
                 Rc::clone(&detached_clone),
                 Rc::clone(&root_node),
                 identifier_counters,
+                inheritance_depth + 1,
             )?;
             apply_children_to_parent(detached_clone, Rc::clone(&parent_node), is_override);
         }

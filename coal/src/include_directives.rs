@@ -10,6 +10,11 @@ use std::path::Path;
 use std::rc::Rc;
 use std::sync::Arc;
 
+/// Maximum depth of nested file inclusions. A chain longer than this is
+/// almost certainly an `$include` cycle (a.yaml includes b.yaml includes
+/// a.yaml), which would otherwise recurse until the stack overflows.
+const MAX_INCLUDE_DEPTH: usize = 64;
+
 /// Traverses the tree depth-first, expanding every file inclusion directive
 /// ($include, $include_directory, $include_subdirectories, and their
 /// _optional variants) by parsing the referenced files and splicing their
@@ -18,6 +23,18 @@ pub fn process_include_directives_depth_first(
     current_node: TreeNodeReference,
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
+) -> Result<(), Box<dyn Error>> {
+    expand_includes_depth_first(current_node, root_node, virtual_file_system, 0)
+}
+
+/// `include_depth` counts how many nested files deep the current expansion is.
+/// It grows only when descending into an included file (not during ordinary
+/// tree traversal), so legitimately wide or deep single files are unaffected.
+fn expand_includes_depth_first(
+    current_node: TreeNodeReference,
+    root_node: TreeNodeReference,
+    virtual_file_system: VirtualFileSystemReference,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     let children = current_node.borrow().children.clone();
     let mut processed_directive_nodes = Vec::new();
@@ -28,15 +45,17 @@ pub fn process_include_directives_depth_first(
             Rc::clone(&current_node),
             Rc::clone(&root_node),
             Arc::clone(&virtual_file_system),
+            include_depth,
         )?;
 
         if was_include_directive {
             processed_directive_nodes.push(Rc::clone(&child));
         } else {
-            process_include_directives_depth_first(
+            expand_includes_depth_first(
                 Rc::clone(&child),
                 Rc::clone(&root_node),
                 Arc::clone(&virtual_file_system),
+                include_depth,
             )?;
         }
     }
@@ -52,6 +71,7 @@ fn process_single_include_directive(
     parent_node: TreeNodeReference,
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
+    include_depth: usize,
 ) -> Result<bool, Box<dyn Error>> {
     let node_key = match node.borrow().key.clone() {
         Some(key) => key,
@@ -59,24 +79,54 @@ fn process_single_include_directive(
     };
 
     match node_key.as_str() {
-        "$include" => {
-            handle_file_include(node, parent_node, root_node, virtual_file_system, false)?
-        }
-        "$include_optional" => {
-            handle_file_include(node, parent_node, root_node, virtual_file_system, true)?
-        }
-        "$include_directory" => {
-            handle_directory_include(node, parent_node, root_node, virtual_file_system, false)?
-        }
-        "$include_directory_optional" => {
-            handle_directory_include(node, parent_node, root_node, virtual_file_system, true)?
-        }
-        "$include_subdirectories" => {
-            handle_subdirectories_include(node, parent_node, root_node, virtual_file_system, false)?
-        }
-        "$include_subdirectories_optional" => {
-            handle_subdirectories_include(node, parent_node, root_node, virtual_file_system, true)?
-        }
+        "$include" => handle_file_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            false,
+            include_depth,
+        )?,
+        "$include_optional" => handle_file_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            true,
+            include_depth,
+        )?,
+        "$include_directory" => handle_directory_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            false,
+            include_depth,
+        )?,
+        "$include_directory_optional" => handle_directory_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            true,
+            include_depth,
+        )?,
+        "$include_subdirectories" => handle_subdirectories_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            false,
+            include_depth,
+        )?,
+        "$include_subdirectories_optional" => handle_subdirectories_include(
+            node,
+            parent_node,
+            root_node,
+            virtual_file_system,
+            true,
+            include_depth,
+        )?,
         _ => return Ok(false),
     };
 
@@ -93,6 +143,7 @@ fn handle_file_include(
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
     is_optional: bool,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     for unresolved_path in include_target_paths(&include_node) {
         let resolved_path = resolve_include_path(&unresolved_path, &include_node, &root_node);
@@ -106,6 +157,7 @@ fn handle_file_include(
                 Rc::clone(&parent_node),
                 Rc::clone(&root_node),
                 Arc::clone(&virtual_file_system),
+                include_depth,
             )?;
         }
     }
@@ -118,6 +170,7 @@ fn handle_directory_include(
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
     is_optional: bool,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     for unresolved_path in include_target_paths(&include_node) {
         let directory_path = resolve_include_path(&unresolved_path, &include_node, &root_node);
@@ -146,6 +199,7 @@ fn handle_directory_include(
                     Rc::clone(&parent_node),
                     Rc::clone(&root_node),
                     Arc::clone(&virtual_file_system),
+                    include_depth,
                 )?;
             }
         }
@@ -159,6 +213,7 @@ fn handle_subdirectories_include(
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
     is_optional: bool,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     for unresolved_path in include_target_paths(&include_node) {
         let base_directory = resolve_include_path(&unresolved_path, &include_node, &root_node);
@@ -193,6 +248,7 @@ fn handle_subdirectories_include(
                     Rc::clone(&parent_node),
                     Rc::clone(&root_node),
                     Arc::clone(&virtual_file_system),
+                    include_depth,
                 )?;
             }
         }
@@ -250,7 +306,10 @@ fn include_yaml_file_into_parent(
     parent_node: TreeNodeReference,
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
+    guard_against_include_cycle(file_path, include_depth)?;
+
     let temporary_root = parse_yaml_into_tree_node(
         content,
         file_path,
@@ -258,13 +317,31 @@ fn include_yaml_file_into_parent(
         Rc::clone(&parent_node),
     )?;
 
-    process_include_directives_depth_first(
+    expand_includes_depth_first(
         Rc::clone(&temporary_root),
         root_node,
         virtual_file_system,
+        include_depth + 1,
     )?;
 
     merge_temporary_tree_into_parent(temporary_root, parent_node);
+    Ok(())
+}
+
+/// Fails the build when the nested-include depth limit is reached, which
+/// indicates an `$include` cycle rather than a legitimately deep chain.
+fn guard_against_include_cycle(
+    file_path: &str,
+    include_depth: usize,
+) -> Result<(), Box<dyn Error>> {
+    if include_depth >= MAX_INCLUDE_DEPTH {
+        return Err(format!(
+            "Possible $include cycle: nested include depth exceeded {} while including '{}'. \
+             Check for files that include each other.",
+            MAX_INCLUDE_DEPTH, file_path
+        )
+        .into());
+    }
     Ok(())
 }
 
@@ -321,8 +398,11 @@ fn include_file_as_named_child(
     parent_node: TreeNodeReference,
     root_node: TreeNodeReference,
     virtual_file_system: VirtualFileSystemReference,
+    include_depth: usize,
 ) -> Result<(), Box<dyn Error>> {
     let file_path = normalize_path(path.to_str().unwrap());
+    guard_against_include_cycle(&file_path, include_depth)?;
+
     let content = virtual_file_system
         .lock()
         .unwrap()
@@ -331,7 +411,12 @@ fn include_file_as_named_child(
     let child_node =
         parse_yaml_into_tree_node(&content, &file_path, child_key, Rc::clone(&parent_node))?;
 
-    process_include_directives_depth_first(Rc::clone(&child_node), root_node, virtual_file_system)?;
+    expand_includes_depth_first(
+        Rc::clone(&child_node),
+        root_node,
+        virtual_file_system,
+        include_depth + 1,
+    )?;
     add_or_replace_child_node_in_parent(parent_node, child_node, false);
 
     Ok(())

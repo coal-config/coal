@@ -169,6 +169,17 @@ As a final step, COAL sorts the entire tree alphabetically by key. The compiled 
 
 ---
 
+## Cycle Detection
+
+COAL guards every recursive phase against directives that reference each other in a loop:
+
+* **`$include` cycles** (a file that includes a file that includes the first) are a **fatal error**. The build stops and names the file at which the include chain became too deep.
+* **`$inherit` / `$override` cycles** (two nodes that inherit from each other) are a **fatal error**, naming the node where inheritance nested too deeply.
+* **`$extend` / `$append` cycles** (directives that keep re-creating themselves) are a **fatal error**, naming the node with the runaway directive.
+* **Jinja reference cycles** (a field whose `{{ ... }}` resolves, directly or transitively, back to itself) are **not fatal**. The loop is broken, the offending template is left in the output unresolved, and a warning naming each cyclic reference is printed to `stderr`.
+
+---
+
 ## System Directives (`$` Functions)
 
 COAL reserves keys starting with `$` for system operations, allowing you to manipulate the tree dynamically.
