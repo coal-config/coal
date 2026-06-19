@@ -631,6 +631,49 @@ clusters:
   - "staging"
 assigned_cluster: "test"
 ```
+
+The same `{{ ... }}` reference works inside a list to constrain every element, so `assigned_clusters: "[{{ ROOT.clusters }}]"` requires a list whose items are each one of the referenced values. (Quote the value so YAML does not treat `{{` as a flow mapping.)
+
+---
+
+### Keyed Objects - `$keyed_by`
+
+Where `[{{ ref }}]` constrains the *values* of a list, `$keyed_by` constrains the *keys* of an object. The field must be a mapping whose keys are drawn from a fixed list, or from a referenced list (its values) or dict (its keys). It is the object-keyed counterpart of the list/scalar forms above.
+
+Pair it with `$any` to validate every value with the same sub-schema. Keys are checked as a subset: unknown keys are flagged, but a referenced key that is absent is not required.
+
+**`schema/main.schema`**
+
+```yaml
+regions: [string]
+deployments:
+  $keyed_by: "{{ ROOT.regions }}"   # keys must be region names
+  $any:                              # each value validated by this
+    replicas: integer
+```
+##### Valid:
+**`main.yaml`**
+```yaml
+regions: ["us", "eu"]
+deployments:
+  us:
+    replicas: 3
+  eu:
+    replicas: 5
+```
+##### Invalid:
+**`main.yaml`**
+```yaml
+regions: ["us", "eu"]
+deployments:
+  us:
+    replicas: 3
+  mars:        # 'mars' is not one of ROOT.regions -> flagged
+    replicas: 1
+```
+
+`$keyed_by` also accepts an explicit list of keys (`$keyed_by: [primary, secondary]`), and a referenced **dict** resolves to its keys (so `$keyed_by: "{{ ROOT.available_roles }}"` permits exactly the role names declared under `available_roles`).
+
 ---
 
 ### Advanced Fields - `$advanced_fields`

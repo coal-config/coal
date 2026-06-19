@@ -1,0 +1,5 @@
+slots:
+  primary:
+    weight: 10
+  secondary:
+    weight: 20

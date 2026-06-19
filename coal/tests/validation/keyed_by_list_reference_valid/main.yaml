@@ -1,0 +1,8 @@
+regions:
+  - us
+  - eu
+deployments:
+  us:
+    replicas: 3
+  eu:
+    replicas: 5

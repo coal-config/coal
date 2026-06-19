@@ -1,0 +1,7 @@
+available_roles:
+  $any:
+    permissions: string
+assigned:
+  $keyed_by: "{{ ROOT.available_roles }}"
+  $any:
+    level: integer

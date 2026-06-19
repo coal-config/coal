@@ -1,0 +1,3 @@
+- type: SchemaError
+  path: deployments
+  contains: "could not resolve $keyed_by"

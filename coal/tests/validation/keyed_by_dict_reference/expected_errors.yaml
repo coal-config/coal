@@ -1,0 +1,3 @@
+- type: FieldNotAllowed
+  path: assigned.guest
+  contains: "not allowed"

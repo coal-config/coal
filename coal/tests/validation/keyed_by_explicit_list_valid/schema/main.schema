@@ -1,0 +1,6 @@
+slots:
+  $keyed_by:
+    - primary
+    - secondary
+  $any:
+    weight: integer

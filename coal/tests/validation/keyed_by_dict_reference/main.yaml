@@ -1,0 +1,10 @@
+available_roles:
+  admin:
+    permissions: all
+  viewer:
+    permissions: read
+assigned:
+  admin:
+    level: 5
+  guest:
+    level: 1

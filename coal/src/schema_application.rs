@@ -517,14 +517,32 @@ fn mark_all_children_not_allowed(target_node: &TreeNodeReference) {
     }
 }
 
+/// The keys an object may carry beyond its explicitly declared fields,
+/// derived from a `$keyed_by` directive.
+enum AllowedKeys {
+    /// No `$keyed_by` directive: the `$any` catch-all (if present) governs
+    /// which keys are permitted, preserving the original behavior.
+    Unrestricted,
+    /// Keys must be drawn from this set.
+    Restricted(HashSet<String>),
+    /// A `$keyed_by` directive was present but could not be resolved. A
+    /// SchemaError has been recorded; key checking is skipped so the build
+    /// does not also flag every key as disallowed.
+    Unresolved,
+}
+
 /// Matches each child of the target node against the schema mapping and
-/// applies the corresponding definition. Children are matched in order of
-/// precedence: a directly declared field, an "$optional" field, and finally
-/// the "$any" catch-all. Unmatched directive children ('$'-prefixed) are
-/// allowed through so they can be processed by later phases.
+/// applies the corresponding definition. Precedence for each child:
+///   1. an explicitly declared field (or an `$optional` field),
+///   2. otherwise, if the key is permitted, the `$any` value schema (or `any`
+///      when `$keyed_by` is given without `$any`),
+///   3. otherwise a '$'-prefixed key is passed through for later phases,
+///   4. otherwise the key is left disallowed (reported as FieldNotAllowed).
 ///
-/// This is shared between regular mapping schemas and "$then" blocks of
-/// conditional fields.
+/// A `$keyed_by` directive restricts which non-declared keys are permitted to
+/// a fixed list, or to the names drawn from a referenced list/dict. This is
+/// shared between regular mapping schemas and "$then" blocks of conditional
+/// fields.
 fn apply_field_schemas_to_children(
     schema_mapping: &Mapping,
     target_node: TreeNodeReference,
@@ -535,6 +553,7 @@ fn apply_field_schemas_to_children(
 ) -> Result<(), Box<dyn Error>> {
     let optional_field_names = extract_optional_field_names(schema_mapping);
     let any_field_schema = schema_mapping.get("$any");
+    let allowed_keys = resolve_allowed_key_set(schema_mapping, &target_node, &root_node);
     let children = target_node.borrow().children.clone();
 
     for child in children {
@@ -555,24 +574,94 @@ fn apply_field_schemas_to_children(
                 loaded_schemas,
                 declarations,
             )?;
-
             if is_optional {
                 child.borrow_mut().optional = true;
             }
-        } else if let Some(any_field_schema) = any_field_schema {
-            apply_schema_definition_to_tree_node(
-                Rc::clone(&child),
-                any_field_schema,
-                schema_origin_name,
-                Rc::clone(&root_node),
-                loaded_schemas,
-                declarations,
-            )?;
+            continue;
+        }
+
+        if key_is_permitted(&child_key, &allowed_keys, any_field_schema.is_some()) {
+            if let Some(any_field_schema) = any_field_schema {
+                apply_schema_definition_to_tree_node(
+                    Rc::clone(&child),
+                    any_field_schema,
+                    schema_origin_name,
+                    Rc::clone(&root_node),
+                    loaded_schemas,
+                    declarations,
+                )?;
+            } else {
+                child.borrow_mut().allowed = true;
+            }
         } else if child_key.starts_with('$') {
             child.borrow_mut().allowed = true;
         }
     }
     Ok(())
+}
+
+fn key_is_permitted(child_key: &str, allowed_keys: &AllowedKeys, has_any_schema: bool) -> bool {
+    match allowed_keys {
+        AllowedKeys::Unrestricted => has_any_schema,
+        AllowedKeys::Restricted(permitted_keys) => permitted_keys.contains(child_key),
+        AllowedKeys::Unresolved => true,
+    }
+}
+
+/// Computes the permitted key set from a `$keyed_by` directive. The directive
+/// accepts a list of literal keys or a `"{{ reference }}"` expression that
+/// resolves to a list (its values) or a dict (its keys) — the same names that
+/// `"{{ reference }}"` produces as allowed values for a scalar field.
+fn resolve_allowed_key_set(
+    schema_mapping: &Mapping,
+    target_node: &TreeNodeReference,
+    root_node: &TreeNodeReference,
+) -> AllowedKeys {
+    let keys_definition = match schema_mapping.get("$keyed_by") {
+        Some(definition) => definition,
+        None => return AllowedKeys::Unrestricted,
+    };
+
+    match keys_definition {
+        Value::Sequence(key_sequence) => {
+            AllowedKeys::Restricted(key_sequence.iter().filter_map(value_as_key).collect())
+        }
+        Value::String(reference_text) if reference_text.contains("{{") => {
+            match resolve_allowed_values_from_jinja_reference(
+                reference_text,
+                Rc::clone(target_node),
+                Rc::clone(root_node),
+            ) {
+                Some(values) => {
+                    AllowedKeys::Restricted(values.iter().filter_map(value_as_key).collect())
+                }
+                None => {
+                    target_node.borrow_mut().schema_error = Some(format!(
+                        "could not resolve $keyed_by from '{}' -> the referenced path is missing or empty",
+                        reference_text
+                    ));
+                    AllowedKeys::Unresolved
+                }
+            }
+        }
+        Value::String(single_key) => AllowedKeys::Restricted(HashSet::from([single_key.clone()])),
+        _ => {
+            target_node.borrow_mut().schema_error = Some(
+                "invalid $keyed_by -> expected a list of keys or a \"{{ reference }}\" expression"
+                    .to_string(),
+            );
+            AllowedKeys::Unresolved
+        }
+    }
+}
+
+fn value_as_key(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(boolean) => Some(boolean.to_string()),
+        _ => None,
+    }
 }
 
 /// Finds the schema definition for a field, checking direct declarations

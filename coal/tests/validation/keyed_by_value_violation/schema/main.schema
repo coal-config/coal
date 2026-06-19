@@ -1,0 +1,5 @@
+regions: "[string]"
+deployments:
+  $keyed_by: "{{ ROOT.regions }}"
+  $any:
+    replicas: integer
