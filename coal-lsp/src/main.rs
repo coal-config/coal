@@ -364,6 +364,12 @@ impl LanguageServer for Backend {
                     let borrowed = target_node.borrow();
                     for child in &borrowed.children {
                         if let Some(key) = &child.borrow().key {
+                            // Never suggest system directives ('$'-prefixed keys):
+                            // they may still be unprocessed while editing and are
+                            // internal, not selectable data.
+                            if key.starts_with('$') {
+                                continue;
+                            }
                             items.push(CompletionItem {
                                 label: key.clone(),
                                 kind: Some(CompletionItemKind::ENUM_MEMBER),
@@ -393,6 +399,10 @@ impl LanguageServer for Backend {
                             let borrowed = node.borrow();
                             for child in &borrowed.children {
                                 if let Some(key) = &child.borrow().key {
+                                    // Skip unprocessed system directives.
+                                    if key.starts_with('$') {
+                                        continue;
+                                    }
                                     if seen_keys.insert(key.clone()) {
                                         items.push(CompletionItem {
                                             label: key.clone(),
@@ -411,6 +421,10 @@ impl LanguageServer for Backend {
                             let borrowed = target_node.borrow();
                             for child in &borrowed.children {
                                 if let Some(key) = &child.borrow().key {
+                                    // Skip unprocessed system directives.
+                                    if key.starts_with('$') {
+                                        continue;
+                                    }
                                     items.push(CompletionItem {
                                         label: key.clone(),
                                         kind: Some(CompletionItemKind::PROPERTY),

@@ -1,0 +1,19 @@
+# Referenced mappings that still contain unprocessed directives at
+# validation time. '$keys' is only consumed by a '$select' sibling, so it
+# survives every expansion phase (like a half-typed directive mid-edit).
+node_types:
+  dp:
+    hardware: desktop
+  cop:
+    hardware: server
+  $keys:
+    - dp
+hardware_kinds:
+  - desktop
+  - server
+  - $keys:
+      - x
+nodes:
+  n1:
+    type: dp
+    hardware: desktop

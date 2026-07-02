@@ -888,11 +888,31 @@ fn resolve_allowed_values_from_jinja_reference(
 /// Extracts allowed values from a node: list children contribute their
 /// values, mapping children contribute their keys. Leaf nodes fall back to
 /// their raw YAML value.
+///
+/// System directives ('$'-prefixed keys) are always excluded. Allowed values
+/// are resolved during the validation phase, which runs BEFORE the final
+/// directive cleanup — so a directive that is still unprocessed at this point
+/// (mid-edit in the language server, an unconsumed '$keys', a half-typed
+/// '$override', ...) must never leak into the allowed values.
 fn collect_allowed_values_from_node(target_node: &TreeNodeReference) -> Vec<Value> {
     let target_borrowed = target_node.borrow();
 
-    if !target_borrowed.children.is_empty() {
-        let all_children_have_numeric_keys = target_borrowed.children.iter().all(|child| {
+    // Directive children are invisible to allowed-value collection, exactly
+    // like the final output cleanup makes them invisible to the compiled tree.
+    let value_children: Vec<&TreeNodeReference> = target_borrowed
+        .children
+        .iter()
+        .filter(|child| {
+            !child
+                .borrow()
+                .key
+                .as_ref()
+                .is_some_and(|key| key.starts_with('$'))
+        })
+        .collect();
+
+    if !value_children.is_empty() {
+        let all_children_have_numeric_keys = value_children.iter().all(|child| {
             child
                 .borrow()
                 .key
@@ -903,14 +923,12 @@ fn collect_allowed_values_from_node(target_node: &TreeNodeReference) -> Vec<Valu
         });
 
         return if all_children_have_numeric_keys {
-            target_borrowed
-                .children
+            value_children
                 .iter()
                 .filter_map(|child| child.borrow().value.clone())
                 .collect()
         } else {
-            target_borrowed
-                .children
+            value_children
                 .iter()
                 .filter_map(|child| child.borrow().key.clone().map(Value::String))
                 .collect()
@@ -919,7 +937,11 @@ fn collect_allowed_values_from_node(target_node: &TreeNodeReference) -> Vec<Valu
 
     match &target_borrowed.value {
         Some(Value::Sequence(sequence)) => sequence.clone(),
-        Some(Value::Mapping(mapping)) => mapping.keys().cloned().collect(),
+        Some(Value::Mapping(mapping)) => mapping
+            .keys()
+            .filter(|key| !matches!(key, Value::String(text) if text.starts_with('$')))
+            .cloned()
+            .collect(),
         _ => Vec::new(),
     }
 }
