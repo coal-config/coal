@@ -95,9 +95,40 @@ jobs:
         if: matrix.archive == 'zip'
         run: Compress-Archive -Path target\${{ matrix.target }}\release\coal.exe, target\${{ matrix.target }}\release\coal-lsp.exe -DestinationPath coal-binaries-${{ needs.versioning.outputs.new_version }}-${{ matrix.target }}.zip
 
-      - name: Package Linux
+      - name: Package Linux (tar.gz)
         if: matrix.archive == 'tar.gz'
         run: tar -czvf coal-binaries-${{ needs.versioning.outputs.new_version }}-${{ matrix.target }}.tar.gz -C target/${{ matrix.target }}/release coal coal-lsp
+
+      - name: Package Linux (Debian .deb)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          VERSION="${{ needs.versioning.outputs.new_version }}"
+          ARCH="amd64"
+          DEB_DIR="coal_${VERSION}_${ARCH}"
+          
+          # Create directory structure
+          mkdir -p ${DEB_DIR}/usr/bin
+          mkdir -p ${DEB_DIR}/DEBIAN
+          
+          # Copy binaries to the package's bin directory
+          cp target/${{ matrix.target }}/release/coal ${DEB_DIR}/usr/bin/
+          cp target/${{ matrix.target }}/release/coal-lsp ${DEB_DIR}/usr/bin/
+          
+          # Ensure binaries are executable
+          chmod +x ${DEB_DIR}/usr/bin/coal
+          chmod +x ${DEB_DIR}/usr/bin/coal-lsp
+          
+          # Create the control file
+          cat <<EOF > ${DEB_DIR}/DEBIAN/control
+          Package: coal
+          Version: ${VERSION}
+          Architecture: ${ARCH}
+          Maintainer: coal-config <coal-config@gmail.com>
+          Description: COALESCENCE coal - a configuration object creator using yaml with advanced functions
+          EOF
+          
+          # Build the package
+          dpkg-deb --build ${DEB_DIR}
 
       - name: Upload Release
         uses: softprops/action-gh-release@v1
@@ -106,5 +137,6 @@ jobs:
           files: |
             *.zip
             *.tar.gz
+            *.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
