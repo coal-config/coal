@@ -82,7 +82,7 @@ pub fn build_entire_coal_configuration_tree(
     );
     synchronize_node_values_depth_first(Rc::clone(&root_node));
 
-    prune_empty_mapping_nodes(Rc::clone(&root_node));
+    // prune_empty_mapping_nodes(Rc::clone(&root_node));
 
     // Phase 4: Validation.
     let mut diagnostic_errors = Vec::new();
