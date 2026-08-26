@@ -1,0 +1,6 @@
+service:
+  name: web
+  port: 1
+  summary: "{% for k, v in PARENT.items() %}{{ k }}={{ v }};{% endfor %}"
+value: 1
+whole: "{{ PARENT }}"

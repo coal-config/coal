@@ -1,0 +1,4 @@
+transports:
+  tcp: 1
+  udp: 2
+chosen: tcp

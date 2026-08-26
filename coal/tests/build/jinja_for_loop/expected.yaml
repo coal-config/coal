@@ -1,0 +1,14 @@
+endpoints:
+  - name: api
+    url: "http://api:8080"
+  - name: worker
+    url: "http://worker:9090"
+port_list:
+  - 8080
+  - 9090
+services:
+  api:
+    port: 8080
+  worker:
+    port: 9090
+summary: "api worker "

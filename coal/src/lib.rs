@@ -2,6 +2,7 @@ pub mod coal_tree;
 pub mod diagnostics;
 pub mod identifier_directives;
 pub mod include_directives;
+pub mod jinja_engine;
 pub mod parameter_overrides;
 pub mod reference_resolution;
 pub mod schema_application;

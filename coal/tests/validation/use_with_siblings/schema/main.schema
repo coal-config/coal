@@ -1,0 +1,9 @@
+$declare:
+  ip_config:
+    address: string
+    gateway: string
+    vlan: string
+
+node_1:
+  $use: "ip_config"
+  vlan: integer

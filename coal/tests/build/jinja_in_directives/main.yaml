@@ -1,0 +1,11 @@
+environment: prod
+tier: "{{ 'high' if environment == 'prod' else 'low' }}"
+defaults:
+  prod_defaults:
+    replicas: 5
+  dev_defaults:
+    replicas: 1
+active:
+  $include: "./envs/{{ environment }}.yaml"
+app:
+  $inherit: "ROOT.defaults.{{ environment }}_defaults"

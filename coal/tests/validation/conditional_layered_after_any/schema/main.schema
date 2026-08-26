@@ -1,0 +1,7 @@
+kind: string
+$any: any
+$conditional:
+  - $if: "{{ kind == 'database' }}"
+    $then:
+      db:
+        password: string

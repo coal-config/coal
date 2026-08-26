@@ -1,0 +1,16 @@
+has_eu: true
+label: region eu of 2
+largest: 10
+limits:
+  large: 10
+  small: 1
+region_count: 2
+region_names:
+  - eu
+  - us
+regions:
+  - eu
+  - us
+sizes:
+  - large
+  - small

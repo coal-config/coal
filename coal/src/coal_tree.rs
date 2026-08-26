@@ -25,6 +25,16 @@ pub struct CoalTree {
     pub default_value: Option<Value>,
     pub allowed_values: Option<Vec<Value>>,
     pub allowed: bool,
+    /// Whether an object schema has already been matched against this node's
+    /// children, which is what decides that a key nobody declared is not
+    /// allowed. A later schema block layered on top of that one only adds to
+    /// it; a node that has never been checked is validated from scratch.
+    pub object_fields_checked: bool,
+    /// Whether the Jinja engine has finished with this field. A value that is
+    /// final but happens to *look* like a template — the output of a
+    /// `{% raw %}` block — must not be rendered again, and must not make the
+    /// fields that read it wait forever.
+    pub template_resolved: bool,
     /// A problem with the schema definition itself (unknown type name,
     /// unresolvable reference, malformed definition) that applied to this
     /// node. Reported as a "SchemaError" diagnostic.
@@ -46,6 +56,8 @@ impl Default for CoalTree {
             default_value: None,
             allowed_values: None,
             allowed: true,
+            object_fields_checked: false,
+            template_resolved: false,
             schema_error: None,
             children: Vec::new(),
             span: None,
@@ -159,4 +171,82 @@ fn convert_children_to_mapping(children: &[TreeNodeReference]) -> Value {
         }
     }
     Value::Mapping(mapping)
+}
+
+/// Converts the tree into a value for template evaluation. It differs from
+/// [`tree_to_yaml`] in two ways, and both are about showing a template only
+/// what the configuration actually says: system directives ('$'-prefixed keys)
+/// are invisible, exactly as they are in the compiled output, and so are the
+/// empty placeholders the schema engine creates for missing fields. A template
+/// that asks for the keys of a mapping therefore never sees a `$select` that
+/// has not been consumed yet, nor a field that only a schema asked for.
+pub fn tree_to_template_value(current_node: TreeNodeReference) -> Value {
+    let node_borrowed = current_node.borrow();
+
+    let value_children: Vec<TreeNodeReference> = node_borrowed
+        .children
+        .iter()
+        .filter(|child| {
+            !is_system_directive_key(&child.borrow().key) && !is_schema_placeholder(child)
+        })
+        .cloned()
+        .collect();
+
+    if value_children.is_empty() {
+        return node_borrowed
+            .value
+            .clone()
+            .map(without_system_directive_keys)
+            .unwrap_or(Value::Null);
+    }
+
+    if value_children
+        .iter()
+        .all(|child| is_numeric_child_key(&child.borrow().key))
+    {
+        return Value::Sequence(
+            value_children
+                .iter()
+                .map(|child| tree_to_template_value(Rc::clone(child)))
+                .collect(),
+        );
+    }
+
+    let mut mapping = Mapping::new();
+    for child in &value_children {
+        if let Some(ref key) = child.borrow().key {
+            mapping.insert(
+                Value::String(key.clone()),
+                tree_to_template_value(Rc::clone(child)),
+            );
+        }
+    }
+    Value::Mapping(mapping)
+}
+
+/// A node the schema engine created for a field the configuration never
+/// declared. It exists so a missing mandatory field can be reported, and it is
+/// deliberately invisible to templates: a schema must not be able to conjure
+/// up a key that the configuration does not actually have.
+///
+/// A placeholder holds no value of its own, and a placeholder for a field
+/// declared as an object holds nothing but further placeholders. The moment
+/// any of them gains a value — a default, say — there is something real there
+/// and the node becomes visible again.
+fn is_schema_placeholder(node: &TreeNodeReference) -> bool {
+    let node_borrowed = node.borrow();
+    node_borrowed.value.is_none() && node_borrowed.children.iter().all(is_schema_placeholder)
+}
+
+fn is_system_directive_key(key: &Option<String>) -> bool {
+    key.as_deref().is_some_and(|key| key.starts_with('$'))
+}
+
+fn is_numeric_child_key(key: &Option<String>) -> bool {
+    key.as_deref().unwrap_or("").parse::<usize>().is_ok()
+}
+
+fn without_system_directive_keys(mut value: Value) -> Value {
+    crate::yaml_values::strip_system_directive_keys_from_value(&mut value);
+    value
 }

@@ -1,0 +1,5 @@
+type: string
+$conditional:
+  - $if: "{{ type == 'database' }}"
+    $then:
+      db_port: integer

@@ -1,0 +1,11 @@
+active:
+  url: prod.local
+app:
+  replicas: 5
+defaults:
+  dev_defaults:
+    replicas: 1
+  prod_defaults:
+    replicas: 5
+environment: prod
+tier: high

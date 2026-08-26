@@ -1,0 +1,5 @@
+environment: production
+type: cache
+port: 5000
+credentials: token
+replicas: 2

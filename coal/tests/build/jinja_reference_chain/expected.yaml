@@ -1,0 +1,6 @@
+first: /start
+last: /start/middle/last
+list_of_links:
+  - /start/middle/last
+  - /start/middle
+middle: /start/middle

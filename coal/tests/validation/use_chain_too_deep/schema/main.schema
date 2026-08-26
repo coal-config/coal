@@ -1,0 +1,85 @@
+$declare:
+  d0:
+    $use: "d1"
+  d1:
+    $use: "d2"
+  d2:
+    $use: "d3"
+  d3:
+    $use: "d4"
+  d4:
+    $use: "d5"
+  d5:
+    $use: "d6"
+  d6:
+    $use: "d7"
+  d7:
+    $use: "d8"
+  d8:
+    $use: "d9"
+  d9:
+    $use: "d10"
+  d10:
+    $use: "d11"
+  d11:
+    $use: "d12"
+  d12:
+    $use: "d13"
+  d13:
+    $use: "d14"
+  d14:
+    $use: "d15"
+  d15:
+    $use: "d16"
+  d16:
+    $use: "d17"
+  d17:
+    $use: "d18"
+  d18:
+    $use: "d19"
+  d19:
+    $use: "d20"
+  d20:
+    $use: "d21"
+  d21:
+    $use: "d22"
+  d22:
+    $use: "d23"
+  d23:
+    $use: "d24"
+  d24:
+    $use: "d25"
+  d25:
+    $use: "d26"
+  d26:
+    $use: "d27"
+  d27:
+    $use: "d28"
+  d28:
+    $use: "d29"
+  d29:
+    $use: "d30"
+  d30:
+    $use: "d31"
+  d31:
+    $use: "d32"
+  d32:
+    $use: "d33"
+  d33:
+    $use: "d34"
+  d34:
+    $use: "d35"
+  d35:
+    $use: "d36"
+  d36:
+    $use: "d37"
+  d37:
+    $use: "d38"
+  d38:
+    $use: "d39"
+  d39:
+    $use: "d40"
+  d40:
+    x: string
+
+$use: "d0"

@@ -1,0 +1,7 @@
+source:
+  a: integer
+  b:
+    x: integer
+target:
+  $keyed_by: "{{ ROOT.source.keys() }}"
+  $any: any

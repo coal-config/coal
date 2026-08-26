@@ -1,0 +1,13 @@
+alpha: 1
+beta: 2
+box:
+  names:
+    - names
+    - size
+    - x
+    - y
+  size: 4
+  x: 1
+  y: 1
+key: alpha
+picked: 1

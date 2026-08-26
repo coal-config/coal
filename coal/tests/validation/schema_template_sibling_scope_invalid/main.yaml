@@ -1,0 +1,11 @@
+transports:
+  tcp:
+    hosts:
+      - alpha
+      - beta
+  udp:
+    hosts:
+      - gamma
+link:
+  transport: tcp
+  host: gamma

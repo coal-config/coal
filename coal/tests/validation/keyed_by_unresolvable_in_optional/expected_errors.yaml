@@ -1,0 +1,9 @@
+- type: SchemaError
+  path: obj
+  contains: "could not resolve $keyed_by"
+- type: FieldNotAllowed
+  path: obj.bogus
+  contains: "not allowed"
+- type: MissingMandatoryField
+  path: obj.needed
+  contains: "expected integer"

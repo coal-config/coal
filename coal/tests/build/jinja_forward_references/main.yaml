@@ -1,0 +1,7 @@
+letters: "{{ source | length }}"
+shouting: "{{ source | upper }}"
+same: "{{ source == 'hello' }}"
+picked: "{{ items | first }}"
+source: "{{ word }}"
+items: "{{ [word, 'second'] }}"
+word: hello

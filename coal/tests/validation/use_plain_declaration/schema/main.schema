@@ -1,0 +1,10 @@
+$declare:
+  port_number: integer
+  speed:
+    - fast
+    - slow
+
+port:
+  $use: "port_number"
+mode:
+  $use: "speed"

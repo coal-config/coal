@@ -1,0 +1,9 @@
+kind: string
+db:
+  host: string
+  port: integer
+$conditional:
+  - $if: "{{ kind == 'database' }}"
+    $then:
+      db:
+        password: string

@@ -1,0 +1,6 @@
+type: string
+$conditional:
+  - $if: "{{ type == 'database' or type == 'cache' }}"
+    $then:
+      db_port: integer
+      db_password: string

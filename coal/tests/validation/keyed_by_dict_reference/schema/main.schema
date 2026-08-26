@@ -2,6 +2,6 @@ available_roles:
   $any:
     permissions: string
 assigned:
-  $keyed_by: "{{ ROOT.available_roles }}"
+  $keyed_by: "{{ ROOT.available_roles.keys() }}"
   $any:
     level: integer

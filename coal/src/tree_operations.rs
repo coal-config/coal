@@ -4,6 +4,7 @@ use crate::yaml_values::{
     convert_marked_yaml_node_to_value, replace_filename_placeholder_in_value,
 };
 use marked_yaml::Node;
+use serde_yaml::Value;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -191,6 +192,8 @@ pub fn clone_tree_node_recursively(
         default_value: source.default_value.clone(),
         allowed_values: source.allowed_values.clone(),
         allowed: source.allowed,
+        object_fields_checked: source.object_fields_checked,
+        template_resolved: source.template_resolved,
         schema_error: source.schema_error.clone(),
         children: Vec::new(),
         span: source.span.clone(),
@@ -201,4 +204,67 @@ pub fn clone_tree_node_recursively(
         cloned_node.borrow_mut().children.push(cloned_child);
     }
     cloned_node
+}
+
+/// Replaces a node's children with the structure held in `value`, turning a
+/// list or mapping that a Jinja template produced into real tree nodes. The
+/// new nodes inherit the origin and location of the field the template was
+/// written on, so diagnostics point at the template rather than at nothing.
+///
+/// They are also marked as resolved. Everything in a template's result came
+/// either from values that were already resolved or from the template's own
+/// literal text, so a piece of it that happens to look like a template is
+/// literal text and must not be rendered again.
+pub fn rebuild_node_children_from_value(node: &TreeNodeReference, value: &Value) {
+    let (origin, span) = {
+        let node_borrowed = node.borrow();
+        (node_borrowed.origin.clone(), node_borrowed.span.clone())
+    };
+
+    node.borrow_mut().children.clear();
+
+    match value {
+        Value::Mapping(mapping) => {
+            for (key, entry_value) in mapping {
+                let key_text = yaml_key_as_child_key(key);
+                attach_generated_child(node, key_text, entry_value, &origin, &span);
+            }
+        }
+        Value::Sequence(sequence) => {
+            for (index, item_value) in sequence.iter().enumerate() {
+                attach_generated_child(node, index.to_string(), item_value, &origin, &span);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn attach_generated_child(
+    parent_node: &TreeNodeReference,
+    key: String,
+    value: &Value,
+    origin: &Option<String>,
+    span: &Option<Span>,
+) {
+    let child_node = new_tree_node_reference(CoalTree {
+        key: Some(key),
+        value: Some(value.clone()),
+        parent: Some(Rc::downgrade(parent_node)),
+        origin: origin.clone(),
+        span: span.clone(),
+        template_resolved: true,
+        ..Default::default()
+    });
+
+    rebuild_node_children_from_value(&child_node, value);
+    parent_node.borrow_mut().children.push(child_node);
+}
+
+fn yaml_key_as_child_key(key: &Value) -> String {
+    match key {
+        Value::String(text) => text.clone(),
+        Value::Number(number) => number.to_string(),
+        Value::Bool(boolean) => boolean.to_string(),
+        _ => String::new(),
+    }
 }

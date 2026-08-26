@@ -1,0 +1,8 @@
+kind: string
+$optional:
+  tuning:
+    cache_size: integer
+    $conditional:
+      - $if: "{{ cache_size > 50 }}"
+        $then:
+          strategy: string

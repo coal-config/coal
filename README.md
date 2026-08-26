@@ -153,7 +153,11 @@ COAL parses the `main.yaml` file into a `CoalTree` root node and performs a dept
 
 ### 2. Processing (Synchronization and Jinja)
 
-With the full structure finalized, COAL synchronizes the raw YAML representations with the deeply nested `CoalTree` nodes. It converts nodes with numeric keys into YAML lists and others into standard mapping objects, then resolves all Jinja templates (`{{ ... }}`). Because the structure is locked at this point, absolute paths can be reliably mapped to their target nodes and values are safely substituted.
+With the full structure finalized, COAL synchronizes the raw YAML representations with the deeply nested `CoalTree` nodes. It converts nodes with numeric keys into YAML lists and others into standard mapping objects, then hands every field that holds a template to the Jinja engine.
+
+Templates are rendered in **passes**. Each pass renders every field whose own references are already resolved, and another pass follows for as long as that moves something forward. A field that reads a field which is itself still a template is simply put off until the pass after it, so declaration order never matters — `last: "{{ middle }}"` written above `middle: "{{ first }}"` resolves exactly as if it had been written below.
+
+Each pass renders against the tree as it stood when the pass began and writes the results only afterwards, so no field ever sees half of another field's resolution.
 
 ### 3. Validation
 
@@ -176,7 +180,7 @@ COAL guards every recursive phase against directives that reference each other i
 * **`$include` cycles** (a file that includes a file that includes the first) are a **fatal error**. The build stops and names the file at which the include chain became too deep.
 * **`$inherit` / `$override` cycles** (two nodes that inherit from each other) are a **fatal error**, naming the node where inheritance nested too deeply.
 * **`$extend` / `$append` cycles** (directives that keep re-creating themselves) are a **fatal error**, naming the node with the runaway directive.
-* **Jinja reference cycles** (a field whose `{{ ... }}` resolves, directly or transitively, back to itself) are **not fatal**. The loop is broken, the offending template is left in the output unresolved, and a warning naming each cyclic reference is printed to `stderr`.
+* **Jinja reference cycles** (a field whose `{{ ... }}` resolves, directly or transitively, back to itself) are **not fatal**. Such a field never becomes resolvable, so the passes simply stop making progress: the template is left in the output as written, and a warning naming the field is printed to `stderr`. The same warning reports a template that fails for any other reason — a name that does not exist, a filter applied to the wrong type — with the engine's own explanation.
 
 ---
 
@@ -496,6 +500,124 @@ processes:
 
 ---
 
+## Jinja Templating
+
+COAL embeds a complete Jinja2 engine. Anything Jinja can express is available in a configuration value, in a directive argument, and in a schema definition: filters, tests, arithmetic, comparisons, `{% for %}` and `{% if %}` blocks, `{% set %}`, and macros.
+
+### What a name means
+
+A template is always written *somewhere* in the tree, and that place decides what plain names mean. Lookup walks outward from the field the template sits on: its **siblings** first, then the siblings of its parent, and so on out to the root. The first scope that declares the name wins.
+
+```yaml
+paths:
+  base: /srv
+  logs: "{{ base }}/logs"      # 'base' is the sibling above
+```
+
+Two names are always available, whatever the scope:
+
+| Name | Refers to |
+| --- | --- |
+| `ROOT` | the whole configuration tree |
+| `PARENT`, `PARENT2`, `PARENT3`, ... | the object N levels up (`PARENT` is the object the field is written in) |
+
+```yaml
+name: root_name
+outer:
+  name: outer_name
+  inner:
+    name: inner_name
+    nearest: "{{ name }}"          # inner_name  (nearest scope wins)
+    parent: "{{ PARENT.name }}"    # inner_name  (PARENT is 'inner')
+    grandparent: "{{ PARENT2.name }}"  # outer_name
+    root: "{{ ROOT.name }}"        # root_name
+```
+
+### What a template produces
+
+| The value | The result |
+| --- | --- |
+| exactly one `{{ ... }}` expression | the expression's own type — a list stays a list, an integer stays an integer, an object stays an object |
+| text mixed with `{{ ... }}` | a string |
+| anything using `{% ... %}` blocks | the rendered text, read back as YAML when that yields a list or a mapping, and left as text otherwise |
+
+```yaml
+services:
+  api:
+    port: 8080
+  worker:
+    port: 9090
+
+names: "{{ services.keys() | list }}"        # a real list: [api, worker]
+count: "{{ services | length }}"             # an integer: 2
+label: "{{ services | length }} services"    # a string: "2 services"
+
+endpoints: |                                  # a real list of objects
+  {% for name, service in services.items() %}
+  - name: {{ name }}
+    url: "http://{{ name }}:{{ service.port }}"
+  {% endfor %}
+```
+
+> **Note:** quote a value that begins with `{{`, or YAML reads it as a flow mapping. A block scalar (`|`) is the natural home for a `{% for %}` loop.
+
+### Filters and methods
+
+Every filter Jinja ships with is available — `map`, `select`, `selectattr`, `join`, `sort`, `unique`, `length`, `default`, `replace`, `split`, `int`, `list`, `items`, `tojson`, and the rest. COAL adds a few of its own:
+
+| Filter | Does |
+| --- | --- |
+| `keys` | the keys of a mapping, as a list |
+| `values` | the values of a mapping, as a list |
+| `dict2items` | a mapping as a list of `{key, value}` entries |
+| `items2dict` | the inverse of `dict2items` |
+| `from_yaml` | parses a string as YAML |
+| `to_yaml` | renders a value as YAML text |
+
+Mappings and strings also answer the methods you would reach for out of habit: `.keys()`, `.values()`, `.items()`, `.get(key, default)`, and `.upper()`, `.lower()`, `.strip()`, `.split()`, `.startswith()`, `.endswith()`.
+
+```yaml
+eu_hosts: "{{ hosts | selectattr('zone', 'eq', 'eu') | map(attribute='name') | list }}"
+first_name: "{{ hosts[0].name.upper() }}"
+```
+
+### Order does not matter
+
+Templates are rendered in repeated passes (see [Processing](#2-processing-synchronization-and-jinja)), and a field is only rendered once every field it reads is itself resolved. A chain of references therefore resolves regardless of the order it is written in, and it never matters which file each link came from.
+
+```yaml
+last: "{{ middle }}/last"     # /start/middle/last
+middle: "{{ first }}/middle"  # /start/middle
+first: /start
+```
+
+Reading the object a field lives in — `{{ PARENT | length }}`, or anything that takes `ROOT` as a whole — is the one place this bends. Such a field waits for the rest of its container as usual, but once nothing else can be resolved it is allowed to look at the container as it stands, since waiting for itself is the only thing left to wait for.
+
+A field whose answer would *contain* its own reference is refused rather than resolved, and reported like any other unresolved template:
+
+```yaml
+snapshot: "{{ PARENT }}"   # the answer would include this very line
+```
+
+A field that can never be resolved — a reference cycle, a name that does not exist, a filter applied to the wrong type — is left in the output exactly as written, and a warning explaining why is printed to `stderr`.
+
+### Templates in directives
+
+Directive arguments are templates too, so a single value can decide what gets built:
+
+```yaml
+environment: prod
+active:
+  $include: "./envs/{{ environment }}.yaml"
+app:
+  $inherit: "ROOT.defaults.{{ environment }}_defaults"
+tier: "{{ 'high' if environment == 'prod' else 'low' }}"
+```
+
+This works for `$include` and its variants, for `$inherit`, `$override`, `$extend` and `$select` targets, and for `$id`/`$id_after` counter names.
+
+---
+
 ## Schema Engine & Validation
 
 The schema engine strictly defines what the compiled YAML is allowed to look like. Schemas are defined as YAML files inside the `schema/` directory, with the entry point named `main.schema`.
@@ -536,7 +658,7 @@ my_server:
 
 #### Declare - `$declare` / `$use`
 
-Defines reusable sub-schemas within the same file.
+`$declare` defines reusable sub-schemas; `$use` pulls one in.
 
 **`schema/main.schema`**
 
@@ -549,6 +671,47 @@ $declare:
 node_1:
   $use: "ip_config"
 ```
+
+A used definition is merged **underneath** the block that uses it, so fields written next to `$use` stay valid and win where both define the same field — the rule `$inherit` follows in configuration files:
+
+```yaml
+$declare:
+  ip_config:
+    address: string
+    gateway: string
+    vlan: string
+
+node_1:
+  $use: "ip_config"
+  vlan: integer      # overrides the declared 'vlan'
+  role: string       # an extra field, perfectly valid
+```
+
+`$use` accepts a list, merged left to right:
+
+```yaml
+node_1:
+  $use:
+    - addressing
+    - naming
+```
+
+A declaration does not have to be an object. When it is a type name or a list of allowed values, `$use` simply *is* that definition:
+
+```yaml
+$declare:
+  port_number: integer
+  speed:
+    - fast
+    - slow
+
+port:
+  $use: "port_number"
+mode:
+  $use: "speed"
+```
+
+`$declare` blocks are scoped: a declaration is visible to the block that declares it and to everything nested inside it, so a sub-schema can declare helpers of its own without leaking them.
 
 #### Any - `$any`
 
@@ -579,7 +742,7 @@ process:
 
 #### Optional - `$optional`
 
-A mapping of fields that are permitted but not strictly required. If they are missing, the diagnostics engine will not flag them as errors.
+Everything inside `$optional` is permitted but never required: if it is missing, the diagnostics engine does not flag it.
 
 **`schema/main.schema`**
 
@@ -601,23 +764,36 @@ name: "Server 1"
 name: "Server 2"
 description: "Valid server"
 ```
----
 
-### Advanced one-lines with Jinja Integration
+`$optional` is a full schema block rather than a plain list of fields, so it may carry `$use`, `$any`, `$keyed_by`, `$advanced_fields` and `$conditional` of its own. Anything it brings in is optional too:
 
-Allows you to use Jinja2 expressions (`{{ ... }}`) directly inside schemas to use your configuration data as validation input.
+```yaml
+$declare:
+  extras:
+    description: string
+    nickname: string
+
+name: string
+$optional:
+  $use: "extras"
+  labels:
+    $any: string
+```
+
+### Allowed Values from the Configuration
+
+A schema field may be a Jinja template instead of a type name. Whatever list the template produces *is* the set of values the field may hold, and the template is evaluated in the field's own scope — so it can read the field's siblings by name and reach anywhere else through `ROOT`.
 
 **`schema/main.schema`**
 
 ```yaml
-clusters: [string]
+clusters: "[string]"
 assigned_cluster: "{{ ROOT.clusters }}"
-
 ```
 ##### Valid:
 **`main.yaml`**
 ```yaml
-clusters: 
+clusters:
   - "prod"
   - "staging"
 assigned_cluster: "staging"
@@ -626,29 +802,53 @@ assigned_cluster: "staging"
 ##### Invalid:
 **`main.yaml`**
 ```yaml
-clusters: 
+clusters:
   - "prod"
   - "staging"
 assigned_cluster: "test"
 ```
 
-The same `{{ ... }}` reference works inside a list to constrain every element, so `assigned_clusters: "[{{ ROOT.clusters }}]"` requires a list whose items are each one of the referenced values. (Quote the value so YAML does not treat `{{` as a flow mapping.)
+Because it is ordinary Jinja, the schema says exactly which values it means. A mapping has two sides, so name the one that constrains the field:
 
----
+```yaml
+transports:
+  $any:
+    hosts: "[string]"
+link:
+  transport: "{{ ROOT.transports.keys() }}"          # one of the declared transports
+  host: "{{ ROOT.transports[transport].hosts }}"     # one of *that* transport's hosts
+```
+
+Here `transport` is the sibling field's value, so the hosts a `link` may choose from follow from the transport it picked:
+
+```yaml
+transports:
+  tcp:
+    hosts: [alpha, beta]
+  udp:
+    hosts: [gamma]
+link:
+  transport: tcp
+  host: beta        # 'gamma' would be flagged: it belongs to udp
+```
+
+A template that resolves to a mapping is reported as a schema error rather than guessed at — add `.keys()` or `.values()` to say which side you meant.
+
+Wrapping the template in brackets constrains every element of a list instead of the field itself, so `assigned_clusters: "[{{ ROOT.clusters }}]"` requires a list whose items are each one of the referenced values.
 
 ### Keyed Objects - `$keyed_by`
 
-Where `[{{ ref }}]` constrains the *values* of a list, `$keyed_by` constrains the *keys* of an object. The field must be a mapping whose keys are drawn from a fixed list, or from a referenced list (its values) or dict (its keys). It is the object-keyed counterpart of the list/scalar forms above.
+Where a template constrains the *values* of a field, `$keyed_by` constrains the *keys* of an object: the field must be a mapping whose keys are drawn from a fixed list, or from the list a template produces.
 
-Pair it with `$any` to validate every value with the same sub-schema. Keys are checked as a subset: unknown keys are flagged, but a referenced key that is absent is not required.
+Pair it with `$any` to validate every value with the same sub-schema. Keys are checked as a subset: unknown keys are flagged, but a permitted key that is absent is not required.
 
 **`schema/main.schema`**
 
 ```yaml
-regions: [string]
+regions: "[string]"
 deployments:
   $keyed_by: "{{ ROOT.regions }}"   # keys must be region names
-  $any:                              # each value validated by this
+  $any:                             # each value validated by this
     replicas: integer
 ```
 ##### Valid:
@@ -672,9 +872,7 @@ deployments:
     replicas: 1
 ```
 
-`$keyed_by` also accepts an explicit list of keys (`$keyed_by: [primary, secondary]`), and a referenced **dict** resolves to its keys (so `$keyed_by: "{{ ROOT.available_roles }}"` permits exactly the role names declared under `available_roles`).
-
----
+`$keyed_by` also accepts an explicit list of keys (`$keyed_by: [primary, secondary]`). To key an object by the names declared in another object, ask for its keys: `$keyed_by: "{{ ROOT.available_roles.keys() }}"`.
 
 ### Advanced Fields - `$advanced_fields`
 
@@ -717,16 +915,18 @@ environment: "test"
 ```
 ---
 
-### Conditional Logic (`$conditional_fields`)
+### Conditional Logic (`$conditional`)
 
-Allows schemas to mutate based on the data present in the compiled tree. Uses an `$if` block (which supports `$and` and `$or`) to check sibling values. If the condition is met, the `$then` block applies a sub-schema.
+Lets a schema mutate based on the data in the compiled tree. Each entry pairs an `$if` condition with a `$then` block; when the condition holds, the `$then` block is applied on top of what the schema already says.
+
+`$if` is a Jinja expression evaluated in the node's own scope, so it reads the node's fields by name and can reach anywhere else through `ROOT`. A field that is absent simply makes the condition false.
 
 **`schema/main.schema`**
 
 ```yaml
-$conditional_fields:
-  - $if:
-      type: "database"
+type: string
+$conditional:
+  - $if: "{{ type == 'database' }}"
     $then:
       db_port: integer
       db_password: string
@@ -739,3 +939,52 @@ type: "database"
 db_port: 5432
 db_password: "secure"
 ```
+##### Invalid:
+**`main.yaml`**
+
+```yaml
+type: "database"   # db_port and db_password are now mandatory and missing
+```
+
+Because the condition is an expression, `and`, `or`, `not`, comparisons, membership and filters all work directly:
+
+```yaml
+$conditional:
+  - $if: "{{ type in ['database', 'cache'] and port > 1024 }}"
+    $then:
+      credentials: string
+  - $if: "{{ ROOT.environment == 'production' }}"
+    $then:
+      replicas: integer
+```
+
+---
+
+### Nesting the object directives
+
+`$declare`/`$use`, `$optional`, `$conditional`, `$any`, `$keyed_by` and `$advanced_fields` all describe the *same* node, and each of them accepts a full schema block. They can therefore be nested inside one another to whatever depth the configuration calls for:
+
+```yaml
+$declare:
+  tuning_block:
+    cache_size: integer
+    $optional:
+      swap: bool
+
+kind: string
+$conditional:
+  - $if: "{{ kind == 'database' }}"
+    $then:
+      db_port: integer
+      $optional:
+        tuning:
+          $use: "tuning_block"
+        $conditional:
+          - $if: "{{ db_port > 1024 }}"
+            $then:
+              notes: string
+```
+
+Optionality is inherited: the `notes` field above sits inside an `$optional`, so the conditional that declares it grants it without ever requiring it.
+
+Any `$` key the schema engine does not recognize is reported as a schema error rather than skipped, so a typo — or a directive under its old name — surfaces instead of quietly doing nothing.

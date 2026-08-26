@@ -1,0 +1,6 @@
+kind: any
+chosen: "{{ kind }}"
+$conditional:
+  - $if: "{{ kind }}"
+    $then:
+      only_when_kind_set: string

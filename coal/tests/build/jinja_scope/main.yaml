@@ -1,0 +1,12 @@
+name: root_name
+outer:
+  name: outer_name
+  inner:
+    name: inner_name
+    nearest: "{{ name }}"
+    from_root: "{{ ROOT.name }}"
+    from_parent: "{{ PARENT.name }}"
+    from_grandparent: "{{ PARENT2.name }}"
+    from_great_grandparent: "{{ PARENT3.name }}"
+    sibling: "{{ other }}"
+    other: sibling_value

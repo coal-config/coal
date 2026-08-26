@@ -1,0 +1,6 @@
+- type: SchemaError
+  path: ROOT
+  contains: "$use chain is deeper than"
+- type: FieldNotAllowed
+  path: x
+  contains: "not allowed"

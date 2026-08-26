@@ -5,11 +5,11 @@ use crate::include_directives::process_include_directives_depth_first;
 use crate::parameter_overrides::{ParameterOverride, apply_parameter_overrides};
 use crate::reference_resolution::resolve_all_jinja_values_in_tree;
 use crate::schema_application::{
-    apply_schema_definition_to_tree_node, load_all_schema_files_from_directory,
+    SchemaEnvironment, apply_schema_definition_to_tree_node, load_all_schema_files_from_directory,
 };
 use crate::structural_directives::process_structural_directives_depth_first;
 use crate::tree_finalization::{
-    prune_empty_mapping_nodes, remove_system_directives_from_tree, sort_tree_alphabetically,
+    remove_system_directives_from_tree, sort_tree_alphabetically,
     synchronize_node_values_depth_first,
 };
 use crate::tree_operations::build_tree_from_marked_node;
@@ -82,8 +82,6 @@ pub fn build_entire_coal_configuration_tree(
     );
     synchronize_node_values_depth_first(Rc::clone(&root_node));
 
-    // prune_empty_mapping_nodes(Rc::clone(&root_node));
-
     // Phase 4: Validation.
     let mut diagnostic_errors = Vec::new();
     if validate {
@@ -132,12 +130,12 @@ fn run_validation_phase(
         return Ok(());
     };
 
+    let schema_environment = SchemaEnvironment::new(Rc::clone(&root_node));
     apply_schema_definition_to_tree_node(
         Rc::clone(&root_node),
         main_schema,
         "main",
-        Rc::clone(&root_node),
-        &schemas,
+        &schema_environment,
         &HashMap::new(),
     )?;
 

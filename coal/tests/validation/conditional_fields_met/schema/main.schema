@@ -1,9 +1,0 @@
-type: string
-$conditional_fields:
-  - $if:
-      $or:
-        - type: "database"
-        - type: "cache"
-    $then:
-      db_port: integer
-      db_password: string

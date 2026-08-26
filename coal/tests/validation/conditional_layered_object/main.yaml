@@ -1,0 +1,5 @@
+kind: database
+db:
+  host: myhost
+  port: 5432
+  password: secret

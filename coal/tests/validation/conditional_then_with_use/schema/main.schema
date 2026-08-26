@@ -1,0 +1,10 @@
+$declare:
+  database_settings:
+    db_port: integer
+    db_password: string
+
+kind: string
+$conditional:
+  - $if: "{{ kind == 'database' }}"
+    $then:
+      $use: "database_settings"

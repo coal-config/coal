@@ -1,0 +1,3 @@
+- type: ValueNotAllowed
+  path: link.host
+  contains: "not in allowed list"

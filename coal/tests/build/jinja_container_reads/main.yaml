@@ -1,0 +1,9 @@
+key: alpha
+alpha: 1
+beta: 2
+picked: "{{ ROOT[key] }}"
+box:
+  x: 1
+  y: "{{ x }}"
+  size: "{{ PARENT | length }}"
+  names: "{{ PARENT.keys() }}"

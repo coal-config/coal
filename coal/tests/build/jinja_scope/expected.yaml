@@ -1,0 +1,12 @@
+name: root_name
+outer:
+  inner:
+    from_grandparent: outer_name
+    from_great_grandparent: root_name
+    from_parent: inner_name
+    from_root: root_name
+    name: inner_name
+    nearest: inner_name
+    other: sibling_value
+    sibling: sibling_value
+  name: outer_name

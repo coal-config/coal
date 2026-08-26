@@ -1,0 +1,8 @@
+$declare:
+  extras:
+    description: string
+    nickname: string
+
+name: string
+$optional:
+  $use: "extras"

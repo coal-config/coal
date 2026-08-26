@@ -1,8 +1,32 @@
+//! The schema engine: it walks a schema definition alongside the compiled
+//! tree and records, on every node, what the configuration was allowed to put
+//! there.
+//!
+//! A schema definition is one of three shapes:
+//!
+//! * a **string** — a type name (`integer`), a list-of type (`[string]`), or a
+//!   Jinja template whose result is the set of values the field may hold,
+//! * a **sequence** — either a single element definition (a typed list) or a
+//!   literal list of allowed values,
+//! * a **mapping** — an object, whose keys are the fields it declares plus the
+//!   `$` directives that shape it.
+//!
+//! The `$` directives that shape an object (`$declare`/`$use`, `$optional`,
+//! `$conditional`, `$any`, `$keyed_by`, `$advanced_fields`) all operate on the
+//! *same* node and are freely nestable: a `$conditional` may live inside an
+//! `$optional`, its `$then` may `$use` a declaration, and that declaration may
+//! carry conditionals of its own.
+
 use crate::coal_tree::CoalTree;
-use crate::reference_resolution::{find_target_node_using_reference_path, jinja_expression_regex};
+use crate::jinja_engine::{
+    TemplateScope, contains_template, evaluate_condition, prepare_tree_for_templates,
+    render_value_template,
+};
 use crate::type_aliases::{TreeNodeReference, VirtualFileSystemReference, new_tree_node_reference};
-use crate::yaml_values::deep_merge_yaml_values;
+use crate::yaml_values::{deep_merge_yaml_values, extract_string_list_from_value};
+use minijinja::Value as JinjaValue;
 use serde_yaml::{Mapping, Value};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
@@ -14,6 +38,11 @@ pub type SchemaCollection = HashMap<String, Value>;
 
 /// Reusable sub-schemas declared with "$declare", keyed by declaration name.
 type SchemaDeclarations = HashMap<String, Value>;
+
+/// How many times a "$use" chain may pull in another definition that itself
+/// uses one. Deep enough for any real schema, shallow enough that a cycle
+/// stops instead of looping.
+const MAX_USE_EXPANSION_DEPTH: usize = 32;
 
 // =====================================================================
 // SCHEMA LOADING
@@ -138,6 +167,57 @@ fn resolve_schema_mixins_recursively(
 }
 
 // =====================================================================
+// SCHEMA ENVIRONMENT
+// =====================================================================
+
+/// What one validation run shares: the tree being validated, and that same
+/// tree prepared for the Jinja engine.
+///
+/// The prepared tree is what makes schema templates affordable. Evaluating
+/// `"{{ ROOT.transports.keys() }}"` on a thousand fields would otherwise walk
+/// and convert the whole configuration a thousand times; here it is built once
+/// and rebuilt only when the schema engine itself changes the data — when it
+/// creates a node for a missing field, or fills in a default.
+pub struct SchemaEnvironment {
+    root_node: TreeNodeReference,
+    prepared_tree: RefCell<Option<JinjaValue>>,
+}
+
+impl SchemaEnvironment {
+    pub fn new(root_node: TreeNodeReference) -> Self {
+        Self {
+            root_node,
+            prepared_tree: RefCell::new(None),
+        }
+    }
+
+    /// The scope a template written on `node` is evaluated in. By the time a
+    /// schema runs, every template that could be resolved has been, so a
+    /// schema template reading the object it describes is allowed to go ahead.
+    fn scope_for(&self, node: &TreeNodeReference) -> TemplateScope {
+        TemplateScope::for_node(node, &self.root_node)
+            .with_prepared_tree(self.prepared_tree())
+            .relaxed()
+    }
+
+    fn prepared_tree(&self) -> JinjaValue {
+        if let Some(ref prepared_tree) = *self.prepared_tree.borrow() {
+            return prepared_tree.clone();
+        }
+
+        let prepared_tree = prepare_tree_for_templates(Rc::clone(&self.root_node));
+        *self.prepared_tree.borrow_mut() = Some(prepared_tree.clone());
+        prepared_tree
+    }
+
+    /// Called whenever the schema engine writes to the tree, so the next
+    /// template sees the change.
+    fn tree_changed(&self) {
+        *self.prepared_tree.borrow_mut() = None;
+    }
+}
+
+// =====================================================================
 // SCHEMA APPLICATION ENTRY POINT
 // =====================================================================
 
@@ -148,8 +228,7 @@ pub fn apply_schema_definition_to_tree_node(
     target_node: TreeNodeReference,
     schema_definition: &Value,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
     {
@@ -163,24 +242,21 @@ pub fn apply_schema_definition_to_tree_node(
             target_node,
             type_text,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
+            environment,
             declarations,
         ),
         Value::Sequence(schema_sequence) => apply_sequence_schema(
             target_node,
             schema_sequence,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
+            environment,
             declarations,
         ),
         Value::Mapping(schema_mapping) => apply_mapping_schema(
             target_node,
             schema_mapping,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
+            environment,
             declarations,
         ),
         _ => {
@@ -220,37 +296,59 @@ fn apply_scalar_type_schema(
     target_node: TreeNodeReference,
     type_text: &str,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
-    if type_text.starts_with('[') && type_text.ends_with(']') {
-        apply_bracketed_list_schema(
+    if type_text.starts_with('[') && type_text.ends_with(']') && !contains_template(type_text) {
+        return apply_bracketed_list_schema(
             target_node,
             type_text,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
+            environment,
             declarations,
-        )
-    } else if type_text.contains("{{") {
-        apply_jinja_allowed_values_schema(target_node, type_text, root_node);
-        Ok(())
-    } else if is_known_type_name(type_text) {
+        );
+    }
+
+    if is_bracketed_template(type_text) {
+        return apply_bracketed_list_schema(
+            target_node,
+            type_text,
+            schema_origin_name,
+            environment,
+            declarations,
+        );
+    }
+
+    if contains_template(type_text) {
+        apply_template_allowed_values_schema(target_node, type_text, environment);
+        return Ok(());
+    }
+
+    if is_known_type_name(type_text) {
         let mut target_borrowed = target_node.borrow_mut();
         target_borrowed.field_type = Some(type_text.to_string());
         target_borrowed.allowed = true;
-        Ok(())
-    } else {
-        mark_schema_error(
-            &target_node,
-            format!(
-                "unknown type '{}' -> expected one of {:?}",
-                type_text, KNOWN_TYPE_NAMES
-            ),
-        );
-        Ok(())
+        return Ok(());
     }
+
+    mark_schema_error(
+        &target_node,
+        format!(
+            "unknown type '{}' -> expected one of {:?}, a \"{{{{ ... }}}}\" template, or a mapping",
+            type_text, KNOWN_TYPE_NAMES
+        ),
+    );
+    Ok(())
+}
+
+/// Recognizes the "[{{ ... }}]" form: a list whose every element is
+/// constrained by the template inside the brackets. The brackets are COAL's
+/// list-of marker, not part of the template.
+fn is_bracketed_template(type_text: &str) -> bool {
+    let trimmed = type_text.trim();
+    trimmed.starts_with('[')
+        && trimmed.ends_with(']')
+        && contains_template(&trimmed[1..trimmed.len() - 1])
 }
 
 /// Handles the "[element_type]" form: the node itself must be a list, and
@@ -259,8 +357,7 @@ fn apply_bracketed_list_schema(
     target_node: TreeNodeReference,
     type_text: &str,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
     let children = {
@@ -270,7 +367,8 @@ fn apply_bracketed_list_schema(
         target_borrowed.children.clone()
     };
 
-    let element_type_text = &type_text[1..type_text.len() - 1];
+    let trimmed = type_text.trim();
+    let element_type_text = &trimmed[1..trimmed.len() - 1];
     let element_schema = Value::String(element_type_text.to_string());
 
     for child in children {
@@ -278,20 +376,21 @@ fn apply_bracketed_list_schema(
             child,
             &element_schema,
             schema_origin_name,
-            Rc::clone(&root_node),
-            loaded_schemas,
+            environment,
             declarations,
         )?;
     }
     Ok(())
 }
 
-/// Handles the "{{ reference }}" form: the node is a string whose allowed
-/// values come from the referenced part of the configuration tree.
-fn apply_jinja_allowed_values_schema(
+/// Handles a template definition: the field's allowed values are whatever the
+/// template evaluates to. The template is ordinary Jinja evaluated in the
+/// field's own scope, so it can read siblings by name and reach anywhere in
+/// the tree through `ROOT`.
+fn apply_template_allowed_values_schema(
     target_node: TreeNodeReference,
-    reference_text: &str,
-    root_node: TreeNodeReference,
+    template_text: &str,
+    environment: &SchemaEnvironment,
 ) {
     {
         let mut target_borrowed = target_node.borrow_mut();
@@ -299,18 +398,14 @@ fn apply_jinja_allowed_values_schema(
         target_borrowed.allowed = true;
     }
 
-    match resolve_allowed_values_from_jinja_reference(
-        reference_text,
-        Rc::clone(&target_node),
-        root_node,
-    ) {
-        Some(allowed_values) => {
+    match resolve_allowed_values_from_template(template_text, &target_node, environment) {
+        Ok(allowed_values) => {
             target_node.borrow_mut().allowed_values = Some(allowed_values);
         }
-        None => {
+        Err(reason) => {
             target_node.borrow_mut().schema_error = Some(format!(
-                "could not resolve allowed values from '{}' -> the referenced path is missing or empty",
-                reference_text
+                "could not resolve allowed values from '{}' -> {}",
+                template_text, reason
             ));
         }
     }
@@ -329,8 +424,7 @@ fn apply_sequence_schema(
     target_node: TreeNodeReference,
     schema_sequence: &[Value],
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
     if let Some(element_schema) = sequence_element_schema(schema_sequence) {
@@ -338,8 +432,7 @@ fn apply_sequence_schema(
             target_node,
             element_schema,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
+            environment,
             declarations,
         );
     }
@@ -360,8 +453,9 @@ fn apply_sequence_schema(
 }
 
 /// Returns the element definition when the sequence declares a typed list:
-/// a single mapping element, or a single string element naming a known type
-/// (so the unquoted YAML form `ports: [integer]` works like `"[integer]"`).
+/// a single mapping element, a single string element naming a known type (so
+/// the unquoted YAML form `ports: [integer]` works like `"[integer]"`), or a
+/// single template (so `[{{ ROOT.clusters }}]` constrains every element).
 fn sequence_element_schema(schema_sequence: &[Value]) -> Option<&Value> {
     if schema_sequence.len() != 1 {
         return None;
@@ -370,6 +464,7 @@ fn sequence_element_schema(schema_sequence: &[Value]) -> Option<&Value> {
     match &schema_sequence[0] {
         Value::Mapping(_) => Some(&schema_sequence[0]),
         Value::String(type_text) if is_known_type_name(type_text) => Some(&schema_sequence[0]),
+        Value::String(type_text) if contains_template(type_text) => Some(&schema_sequence[0]),
         _ => None,
     }
 }
@@ -378,8 +473,7 @@ fn apply_list_element_schema(
     target_node: TreeNodeReference,
     element_schema: &Value,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
     let children = {
@@ -394,8 +488,7 @@ fn apply_list_element_schema(
             child,
             element_schema,
             schema_origin_name,
-            Rc::clone(&root_node),
-            loaded_schemas,
+            environment,
             declarations,
         )?;
     }
@@ -423,24 +516,89 @@ fn collect_allowed_scalar_values(schema_sequence: &[Value]) -> Option<Vec<Value>
 // MAPPING SCHEMAS
 // =====================================================================
 
+/// How a schema block is applied on top of the node it describes.
+///
+/// A block is a mapping of field definitions and `$` directives. The outermost
+/// block of an object is the schema itself; `$optional` and the `$then` of a
+/// `$conditional` are blocks applied on top of it, and they inherit these
+/// settings so that, for instance, a conditional nested inside an `$optional`
+/// keeps its fields optional.
+#[derive(Clone, Copy)]
+struct BlockOptions {
+    /// Whether fields the block declares but the configuration omits are
+    /// created as empty nodes, so a missing mandatory field is reported.
+    inject_missing_fields: bool,
+    /// Whether every field the block matches is permitted to be absent.
+    fields_are_optional: bool,
+    /// Whether the block is layered on top of a schema that has already been
+    /// applied to the same node. A layered block only ever grants: it never
+    /// takes back what the block underneath it already permitted.
+    layered: bool,
+}
+
+impl BlockOptions {
+    /// The settings of an object's own schema.
+    fn declaring() -> Self {
+        Self {
+            inject_missing_fields: true,
+            fields_are_optional: false,
+            layered: false,
+        }
+    }
+
+    /// The settings of an `$optional` block: its fields are permitted, never
+    /// required, so nothing is injected for the ones that are absent.
+    fn optional(self) -> Self {
+        Self {
+            inject_missing_fields: false,
+            fields_are_optional: true,
+            layered: true,
+        }
+    }
+
+    /// The settings of a `$then` block: it says what else is required once its
+    /// condition holds, under whatever rules the block that carries it works.
+    fn conditional_then(self) -> Self {
+        Self {
+            layered: true,
+            ..self
+        }
+    }
+
+    /// The settings inside a field of a layered block. The field's own
+    /// definition is a fresh schema — its fields are required unless it says
+    /// otherwise — but the node it describes has already been validated, so
+    /// its existing grants stay.
+    fn inside_layered_field() -> Self {
+        Self {
+            inject_missing_fields: true,
+            fields_are_optional: false,
+            layered: true,
+        }
+    }
+}
+
 fn apply_mapping_schema(
     target_node: TreeNodeReference,
     schema_mapping: &Mapping,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
 ) -> Result<(), Box<dyn Error>> {
-    if let Some(declared_schema) = look_up_use_declaration(schema_mapping, declarations) {
+    let (effective_schema, declarations) =
+        prepare_schema_block(schema_mapping, declarations, &target_node);
+
+    // "$use" may name a definition that is not an object at all — a type name
+    // or an allowed-value list. The field then simply *is* that definition.
+    let Value::Mapping(effective_mapping) = effective_schema else {
         return apply_schema_definition_to_tree_node(
             target_node,
-            &declared_schema,
+            &effective_schema,
             schema_origin_name,
-            root_node,
-            loaded_schemas,
-            declarations,
+            environment,
+            &declarations,
         );
-    }
+    };
 
     {
         let mut target_borrowed = target_node.borrow_mut();
@@ -448,49 +606,278 @@ fn apply_mapping_schema(
         target_borrowed.allowed = true;
     }
 
-    let local_declarations = collect_local_declarations(schema_mapping, declarations);
-
-    inject_missing_schema_fields(schema_mapping, Rc::clone(&target_node), schema_origin_name);
-
     mark_all_children_not_allowed(&target_node);
 
+    apply_prepared_schema_block(
+        &effective_mapping,
+        target_node,
+        schema_origin_name,
+        environment,
+        &declarations,
+        BlockOptions::declaring(),
+    )
+}
+
+/// Applies a block that sits on top of an object that has already been
+/// validated: an `$optional` block, or the `$then` of a matching
+/// `$conditional`. Such a block only ever grants more — it never takes back
+/// what the enclosing schema already permitted.
+fn apply_nested_schema_block(
+    block_mapping: &Mapping,
+    target_node: TreeNodeReference,
+    schema_origin_name: &str,
+    environment: &SchemaEnvironment,
+    declarations: &SchemaDeclarations,
+    options: BlockOptions,
+) -> Result<(), Box<dyn Error>> {
+    let (effective_schema, declarations) =
+        prepare_schema_block(block_mapping, declarations, &target_node);
+
+    let Value::Mapping(effective_mapping) = effective_schema else {
+        mark_schema_error(
+            &target_node,
+            "invalid schema block -> expected a mapping of field definitions".to_string(),
+        );
+        return Ok(());
+    };
+
+    apply_prepared_schema_block(
+        &effective_mapping,
+        target_node,
+        schema_origin_name,
+        environment,
+        &declarations,
+        options,
+    )
+}
+
+/// The directives a schema block may carry. Everything else starting with a
+/// "$" is a mistake worth reporting rather than ignoring in silence.
+const KNOWN_BLOCK_DIRECTIVES: [&str; 7] = [
+    "$schema",
+    "$declare",
+    "$use",
+    "$optional",
+    "$conditional",
+    "$any",
+    "$keyed_by",
+];
+
+/// Reports any "$" key the schema engine does not know, so a typo or an
+/// outdated directive name surfaces instead of being quietly skipped.
+fn check_block_directives_are_known(block_mapping: &Mapping, target_node: &TreeNodeReference) {
+    for key in block_mapping.keys() {
+        let Value::String(directive_name) = key else {
+            continue;
+        };
+        if !directive_name.starts_with('$')
+            || KNOWN_BLOCK_DIRECTIVES.contains(&directive_name.as_str())
+            || directive_name == "$advanced_fields"
+        {
+            continue;
+        }
+
+        let hint = match directive_name.as_str() {
+            "$conditional_fields" => " -> it is now called $conditional".to_string(),
+            _ => format!(" -> expected one of {:?}", KNOWN_BLOCK_DIRECTIVES),
+        };
+        mark_schema_error(
+            target_node,
+            format!("unknown schema directive '{}'{}", directive_name, hint),
+        );
+    }
+}
+
+/// Applies one block of field definitions and directives to a node. Every
+/// directive that shapes an object is handled here, which is what makes them
+/// nestable: `$optional` and `$conditional` route straight back into this
+/// same function.
+fn apply_prepared_schema_block(
+    block_mapping: &Mapping,
+    target_node: TreeNodeReference,
+    schema_origin_name: &str,
+    environment: &SchemaEnvironment,
+    declarations: &SchemaDeclarations,
+    options: BlockOptions,
+) -> Result<(), Box<dyn Error>> {
+    check_block_directives_are_known(block_mapping, &target_node);
+
+    if options.inject_missing_fields {
+        inject_missing_schema_fields(
+            block_mapping,
+            Rc::clone(&target_node),
+            schema_origin_name,
+            environment,
+        );
+    }
+
     apply_field_schemas_to_children(
-        schema_mapping,
+        block_mapping,
         Rc::clone(&target_node),
         schema_origin_name,
-        Rc::clone(&root_node),
-        loaded_schemas,
-        &local_declarations,
+        environment,
+        declarations,
+        options,
     )?;
 
     apply_advanced_field_definitions(
-        schema_mapping,
+        block_mapping,
         Rc::clone(&target_node),
-        Rc::clone(&root_node),
+        environment,
         schema_origin_name,
+        options,
     )?;
 
-    apply_conditional_field_blocks(
-        schema_mapping,
-        target_node,
-        root_node,
+    apply_optional_block(
+        block_mapping,
+        Rc::clone(&target_node),
         schema_origin_name,
-        loaded_schemas,
-        &local_declarations,
+        environment,
+        declarations,
+        options,
+    )?;
+
+    apply_conditional_blocks(
+        block_mapping,
+        target_node,
+        schema_origin_name,
+        environment,
+        declarations,
+        options,
     )?;
 
     Ok(())
 }
 
-/// Resolves a "$use" reference to its "$declare"d sub-schema, if present.
-fn look_up_use_declaration(
-    schema_mapping: &Mapping,
-    declarations: &SchemaDeclarations,
-) -> Option<Value> {
-    if let Some(Value::String(declaration_name)) = schema_mapping.get("$use") {
-        return declarations.get(declaration_name).cloned();
+// =====================================================================
+// $declare and $use
+// =====================================================================
+
+/// Resolves a block's "$use" directives and collects its "$declare" entries,
+/// returning the schema that is actually applied together with the
+/// declarations visible inside it.
+///
+/// A used definition is merged *underneath* the block that uses it, so fields
+/// written next to `$use` stay valid and win where both define the same field
+/// — the same rule `$inherit` follows in configuration files. `$use` also
+/// accepts a list, merged left to right.
+fn prepare_schema_block(
+    block_mapping: &Mapping,
+    inherited_declarations: &SchemaDeclarations,
+    target_node: &TreeNodeReference,
+) -> (Value, SchemaDeclarations) {
+    let mut declarations = collect_local_declarations(block_mapping, inherited_declarations);
+    let mut effective_schema = Value::Mapping(block_mapping.clone());
+    let mut already_used = HashSet::new();
+
+    for _ in 0..MAX_USE_EXPANSION_DEPTH {
+        let Value::Mapping(current_mapping) = &effective_schema else {
+            break;
+        };
+        let Some(use_directive) = current_mapping.get("$use") else {
+            break;
+        };
+
+        let used_names = extract_string_list_from_value(use_directive);
+        let mut local_mapping = current_mapping.clone();
+        local_mapping.remove("$use");
+
+        let used_schema = merge_used_declarations(
+            &used_names,
+            &declarations,
+            &mut already_used,
+            target_node,
+            &local_mapping,
+        );
+
+        effective_schema = match used_schema {
+            // A declaration that is not an object — a type name, or a list of
+            // allowed values — simply *is* the field's schema.
+            Some(used_schema) if !used_schema.is_mapping() => {
+                return (used_schema, declarations);
+            }
+            Some(used_schema) => {
+                deep_merge_yaml_values(&used_schema, &Value::Mapping(local_mapping))
+            }
+            None => Value::Mapping(local_mapping),
+        };
+
+        if let Value::Mapping(expanded_mapping) = &effective_schema {
+            declarations = collect_local_declarations(expanded_mapping, &declarations);
+        }
     }
-    None
+
+    if let Value::Mapping(unfinished_mapping) = &effective_schema
+        && unfinished_mapping.contains_key("$use")
+    {
+        mark_schema_error(
+            target_node,
+            format!(
+                "$use chain is deeper than {} -> a declaration that uses a declaration that uses a declaration, without end",
+                MAX_USE_EXPANSION_DEPTH
+            ),
+        );
+    }
+
+    (effective_schema, declarations)
+}
+
+/// Merges the named declarations into one definition. Returns None when
+/// nothing usable was found, and reports a schema error naming what was
+/// missing or unmergeable.
+fn merge_used_declarations(
+    used_names: &[String],
+    declarations: &SchemaDeclarations,
+    already_used: &mut HashSet<String>,
+    target_node: &TreeNodeReference,
+    local_mapping: &Mapping,
+) -> Option<Value> {
+    let mut merged_schema: Option<Value> = None;
+
+    for used_name in used_names {
+        if !already_used.insert(used_name.clone()) {
+            continue;
+        }
+
+        let Some(declared_schema) = declarations.get(used_name) else {
+            mark_schema_error(
+                target_node,
+                format!(
+                    "unknown $use target '{}' -> no $declare with that name is in scope",
+                    used_name
+                ),
+            );
+            continue;
+        };
+
+        if !declared_schema.is_mapping() {
+            if block_declares_fields(local_mapping) {
+                mark_schema_error(
+                    target_node,
+                    format!(
+                        "$use '{}' names a plain definition -> it cannot be combined with the fields declared beside it",
+                        used_name
+                    ),
+                );
+            }
+            return Some(declared_schema.clone());
+        }
+
+        merged_schema = Some(match merged_schema {
+            Some(previous) => deep_merge_yaml_values(&previous, declared_schema),
+            None => declared_schema.clone(),
+        });
+    }
+
+    merged_schema
+}
+
+/// Whether the block declares anything of its own besides the directives that
+/// only carry declarations.
+fn block_declares_fields(block_mapping: &Mapping) -> bool {
+    block_mapping
+        .keys()
+        .any(|key| !matches!(key, Value::String(name) if name == "$declare"))
 }
 
 /// Merges "$declare" entries from this schema mapping into the declarations
@@ -510,8 +897,17 @@ fn collect_local_declarations(
     local_declarations
 }
 
+// =====================================================================
+// FIELD MATCHING
+// =====================================================================
+
+/// Starts an object's children off as not allowed, so that only the fields the
+/// schema goes on to match end up permitted. Recording that this happened is
+/// what lets a later block layer more fields on top without undoing it.
 fn mark_all_children_not_allowed(target_node: &TreeNodeReference) {
-    let target_borrowed = target_node.borrow();
+    let mut target_borrowed = target_node.borrow_mut();
+    target_borrowed.object_fields_checked = true;
+
     for child in &target_borrowed.children {
         child.borrow_mut().allowed = false;
     }
@@ -521,7 +917,7 @@ fn mark_all_children_not_allowed(target_node: &TreeNodeReference) {
 /// derived from a `$keyed_by` directive.
 enum AllowedKeys {
     /// No `$keyed_by` directive: the `$any` catch-all (if present) governs
-    /// which keys are permitted, preserving the original behavior.
+    /// which keys are permitted.
     Unrestricted,
     /// Keys must be drawn from this set.
     Restricted(HashSet<String>),
@@ -531,29 +927,24 @@ enum AllowedKeys {
     Unresolved,
 }
 
-/// Matches each child of the target node against the schema mapping and
-/// applies the corresponding definition. Precedence for each child:
-///   1. an explicitly declared field (or an `$optional` field),
+/// Matches each child of the target node against the block and applies the
+/// corresponding definition. Precedence for each child:
+///   1. an explicitly declared field,
 ///   2. otherwise, if the key is permitted, the `$any` value schema (or `any`
 ///      when `$keyed_by` is given without `$any`),
 ///   3. otherwise a '$'-prefixed key is passed through for later phases,
-///   4. otherwise the key is left disallowed (reported as FieldNotAllowed).
-///
-/// A `$keyed_by` directive restricts which non-declared keys are permitted to
-/// a fixed list, or to the names drawn from a referenced list/dict. This is
-/// shared between regular mapping schemas and "$then" blocks of conditional
-/// fields.
+///   4. otherwise the key is left as it was (reported as FieldNotAllowed
+///      unless another block permits it).
 fn apply_field_schemas_to_children(
-    schema_mapping: &Mapping,
+    block_mapping: &Mapping,
     target_node: TreeNodeReference,
     schema_origin_name: &str,
-    root_node: TreeNodeReference,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
+    options: BlockOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let optional_field_names = extract_optional_field_names(schema_mapping);
-    let any_field_schema = schema_mapping.get("$any");
-    let allowed_keys = resolve_allowed_key_set(schema_mapping, &target_node, &root_node);
+    let any_field_schema = block_mapping.get("$any");
+    let allowed_keys = resolve_allowed_key_set(block_mapping, &target_node, environment);
     let children = target_node.borrow().children.clone();
 
     for child in children {
@@ -562,36 +953,40 @@ fn apply_field_schemas_to_children(
             None => continue,
         };
 
-        let (field_schema, is_optional) =
-            look_up_field_schema(schema_mapping, &child_key, &optional_field_names);
-
-        if let Some(field_schema) = field_schema {
-            apply_schema_definition_to_tree_node(
-                Rc::clone(&child),
-                &field_schema,
+        if let Some(field_schema) = block_mapping.get(Value::String(child_key.clone())) {
+            apply_field_schema_to_child(
+                &child,
+                field_schema,
                 schema_origin_name,
-                Rc::clone(&root_node),
-                loaded_schemas,
+                environment,
                 declarations,
+                options,
             )?;
-            if is_optional {
+            if options.fields_are_optional {
                 child.borrow_mut().optional = true;
             }
             continue;
         }
 
-        if key_is_permitted(&child_key, &allowed_keys, any_field_schema.is_some()) {
+        if key_is_permitted(
+            &child_key,
+            &allowed_keys,
+            any_field_schema.is_some(),
+            options,
+        ) {
             if let Some(any_field_schema) = any_field_schema {
                 apply_schema_definition_to_tree_node(
                     Rc::clone(&child),
                     any_field_schema,
                     schema_origin_name,
-                    Rc::clone(&root_node),
-                    loaded_schemas,
+                    environment,
                     declarations,
                 )?;
             } else {
                 child.borrow_mut().allowed = true;
+            }
+            if options.fields_are_optional {
+                child.borrow_mut().optional = true;
             }
         } else if child_key.starts_with('$') {
             child.borrow_mut().allowed = true;
@@ -600,24 +995,113 @@ fn apply_field_schemas_to_children(
     Ok(())
 }
 
-fn key_is_permitted(child_key: &str, allowed_keys: &AllowedKeys, has_any_schema: bool) -> bool {
+/// Applies one field's definition to the child that carries it.
+///
+/// A layered block re-declaring an object the schema underneath it already
+/// described — "a database also has a password" — must add to that object
+/// rather than start it over, or the fields the first block granted would be
+/// revoked. Everything else is applied from scratch, including a field that
+/// only a catch-all had permitted so far: its keys have never been checked,
+/// and this definition is the first schema that can check them.
+fn apply_field_schema_to_child(
+    child: &TreeNodeReference,
+    field_schema: &Value,
+    schema_origin_name: &str,
+    environment: &SchemaEnvironment,
+    declarations: &SchemaDeclarations,
+    options: BlockOptions,
+) -> Result<(), Box<dyn Error>> {
+    let child_already_checked = child.borrow().object_fields_checked;
+
+    if let (true, true, Value::Mapping(field_mapping)) =
+        (options.layered, child_already_checked, field_schema)
+    {
+        return apply_layered_mapping_schema(
+            Rc::clone(child),
+            field_mapping,
+            schema_origin_name,
+            environment,
+            declarations,
+        );
+    }
+
+    apply_schema_definition_to_tree_node(
+        Rc::clone(child),
+        field_schema,
+        schema_origin_name,
+        environment,
+        declarations,
+    )
+}
+
+/// Applies an object definition on top of one that has already been applied to
+/// the same node: the fields it declares are added, and the ones the earlier
+/// definition permitted are left alone.
+fn apply_layered_mapping_schema(
+    target_node: TreeNodeReference,
+    schema_mapping: &Mapping,
+    schema_origin_name: &str,
+    environment: &SchemaEnvironment,
+    declarations: &SchemaDeclarations,
+) -> Result<(), Box<dyn Error>> {
+    let (effective_schema, declarations) =
+        prepare_schema_block(schema_mapping, declarations, &target_node);
+
+    let Value::Mapping(effective_mapping) = effective_schema else {
+        // The definition turned out not to be an object after all, so there is
+        // nothing to layer: apply it the ordinary way.
+        return apply_schema_definition_to_tree_node(
+            target_node,
+            &effective_schema,
+            schema_origin_name,
+            environment,
+            &declarations,
+        );
+    };
+
+    {
+        let mut target_borrowed = target_node.borrow_mut();
+        target_borrowed.field_type = Some("object".to_string());
+        target_borrowed.allowed = true;
+    }
+
+    apply_prepared_schema_block(
+        &effective_mapping,
+        target_node,
+        schema_origin_name,
+        environment,
+        &declarations,
+        BlockOptions::inside_layered_field(),
+    )
+}
+
+fn key_is_permitted(
+    child_key: &str,
+    allowed_keys: &AllowedKeys,
+    has_any_schema: bool,
+    options: BlockOptions,
+) -> bool {
     match allowed_keys {
         AllowedKeys::Unrestricted => has_any_schema,
         AllowedKeys::Restricted(permitted_keys) => permitted_keys.contains(child_key),
-        AllowedKeys::Unresolved => true,
+        // The directive is broken and has already been reported. The block
+        // that declares the object skips key checking so the same mistake is
+        // not reported twice on every field; a layered block grants nothing,
+        // because the block underneath it has already had its say.
+        AllowedKeys::Unresolved => !options.layered,
     }
 }
 
 /// Computes the permitted key set from a `$keyed_by` directive. The directive
-/// accepts a list of literal keys or a `"{{ reference }}"` expression that
-/// resolves to a list (its values) or a dict (its keys) — the same names that
-/// `"{{ reference }}"` produces as allowed values for a scalar field.
+/// accepts a list of literal keys or a Jinja template that evaluates to the
+/// list of names — `"{{ ROOT.transports.keys() }}"` for the keys of a mapping,
+/// `"{{ ROOT.regions }}"` for the entries of a list.
 fn resolve_allowed_key_set(
-    schema_mapping: &Mapping,
+    block_mapping: &Mapping,
     target_node: &TreeNodeReference,
-    root_node: &TreeNodeReference,
+    environment: &SchemaEnvironment,
 ) -> AllowedKeys {
-    let keys_definition = match schema_mapping.get("$keyed_by") {
+    let keys_definition = match block_mapping.get("$keyed_by") {
         Some(definition) => definition,
         None => return AllowedKeys::Unrestricted,
     };
@@ -626,19 +1110,15 @@ fn resolve_allowed_key_set(
         Value::Sequence(key_sequence) => {
             AllowedKeys::Restricted(key_sequence.iter().filter_map(value_as_key).collect())
         }
-        Value::String(reference_text) if reference_text.contains("{{") => {
-            match resolve_allowed_values_from_jinja_reference(
-                reference_text,
-                Rc::clone(target_node),
-                Rc::clone(root_node),
-            ) {
-                Some(values) => {
+        Value::String(template_text) if contains_template(template_text) => {
+            match resolve_allowed_values_from_template(template_text, target_node, environment) {
+                Ok(values) => {
                     AllowedKeys::Restricted(values.iter().filter_map(value_as_key).collect())
                 }
-                None => {
+                Err(reason) => {
                     target_node.borrow_mut().schema_error = Some(format!(
-                        "could not resolve $keyed_by from '{}' -> the referenced path is missing or empty",
-                        reference_text
+                        "could not resolve $keyed_by from '{}' -> {}",
+                        template_text, reason
                     ));
                     AllowedKeys::Unresolved
                 }
@@ -647,7 +1127,7 @@ fn resolve_allowed_key_set(
         Value::String(single_key) => AllowedKeys::Restricted(HashSet::from([single_key.clone()])),
         _ => {
             target_node.borrow_mut().schema_error = Some(
-                "invalid $keyed_by -> expected a list of keys or a \"{{ reference }}\" expression"
+                "invalid $keyed_by -> expected a list of keys or a \"{{ ... }}\" template"
                     .to_string(),
             );
             AllowedKeys::Unresolved
@@ -664,51 +1144,16 @@ fn value_as_key(value: &Value) -> Option<String> {
     }
 }
 
-/// Finds the schema definition for a field, checking direct declarations
-/// first and the "$optional" block second. Returns the definition together
-/// with whether the field is optional.
-fn look_up_field_schema(
-    schema_mapping: &Mapping,
-    field_name: &str,
-    optional_field_names: &[String],
-) -> (Option<Value>, bool) {
-    let field_key = Value::String(field_name.to_string());
-
-    if let Some(field_schema) = schema_mapping.get(&field_key) {
-        let is_optional = optional_field_names.contains(&field_name.to_string());
-        return (Some(field_schema.clone()), is_optional);
-    }
-
-    if let Some(Value::Mapping(optional_mapping)) = schema_mapping.get("$optional")
-        && let Some(optional_schema) = optional_mapping.get(&field_key)
-    {
-        return (Some(optional_schema.clone()), true);
-    }
-
-    (None, false)
-}
-
-fn extract_optional_field_names(schema_mapping: &Mapping) -> Vec<String> {
-    let mut optional_field_names = Vec::new();
-    if let Some(Value::Mapping(optional_mapping)) = schema_mapping.get("$optional") {
-        for (optional_key, _) in optional_mapping {
-            if let Value::String(field_name) = optional_key {
-                optional_field_names.push(field_name.clone());
-            }
-        }
-    }
-    optional_field_names
-}
-
 /// Creates placeholder children for every field the schema declares but the
 /// configuration does not provide, so missing mandatory fields show up in
 /// diagnostics (and "$advanced_fields" defaults have a node to fill).
 fn inject_missing_schema_fields(
-    schema_mapping: &Mapping,
+    block_mapping: &Mapping,
     target_node: TreeNodeReference,
     schema_origin_name: &str,
+    environment: &SchemaEnvironment,
 ) {
-    let expected_field_names = collect_expected_field_names(schema_mapping);
+    let expected_field_names = collect_expected_field_names(block_mapping);
 
     let mut target_borrowed = target_node.borrow_mut();
     let parent_span = target_borrowed.span.clone();
@@ -737,13 +1182,14 @@ fn inject_missing_schema_fields(
             ..Default::default()
         });
         target_borrowed.children.push(placeholder_node);
+        environment.tree_changed();
     }
 }
 
-fn collect_expected_field_names(schema_mapping: &Mapping) -> Vec<String> {
+fn collect_expected_field_names(block_mapping: &Mapping) -> Vec<String> {
     let mut expected_field_names = Vec::new();
 
-    for (key, _) in schema_mapping {
+    for (key, _) in block_mapping {
         if let Value::String(field_name) = key
             && !field_name.starts_with('$')
         {
@@ -751,7 +1197,7 @@ fn collect_expected_field_names(schema_mapping: &Mapping) -> Vec<String> {
         }
     }
 
-    if let Some(Value::Mapping(advanced_fields)) = schema_mapping.get("$advanced_fields") {
+    if let Some(Value::Mapping(advanced_fields)) = block_mapping.get("$advanced_fields") {
         for (key, _) in advanced_fields {
             if let Value::String(field_name) = key
                 && !expected_field_names.contains(field_name)
@@ -771,12 +1217,13 @@ fn collect_expected_field_names(schema_mapping: &Mapping) -> Vec<String> {
 /// Applies "$advanced_fields" definitions (type, default_value,
 /// allowed_values) to the matching children of the target node.
 fn apply_advanced_field_definitions(
-    schema_mapping: &Mapping,
+    block_mapping: &Mapping,
     target_node: TreeNodeReference,
-    root_node: TreeNodeReference,
+    environment: &SchemaEnvironment,
     schema_origin_name: &str,
+    options: BlockOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let advanced_fields = match schema_mapping.get("$advanced_fields") {
+    let advanced_fields = match block_mapping.get("$advanced_fields") {
         Some(Value::Mapping(advanced_fields)) => advanced_fields,
         _ => return Ok(()),
     };
@@ -795,8 +1242,9 @@ fn apply_advanced_field_definitions(
                     child,
                     field_definition,
                     &target_node,
-                    &root_node,
+                    environment,
                     schema_origin_name,
+                    options,
                 );
             }
         }
@@ -808,13 +1256,17 @@ fn apply_advanced_definition_to_node(
     node: &TreeNodeReference,
     field_definition: &Value,
     context_node: &TreeNodeReference,
-    root_node: &TreeNodeReference,
+    environment: &SchemaEnvironment,
     schema_origin_name: &str,
+    options: BlockOptions,
 ) {
     {
         let mut node_borrowed = node.borrow_mut();
         node_borrowed.schema_origin = Some(schema_origin_name.to_string());
         node_borrowed.allowed = true;
+        if options.fields_are_optional {
+            node_borrowed.optional = true;
+        }
     }
 
     let definition_mapping = match field_definition {
@@ -831,6 +1283,8 @@ fn apply_advanced_definition_to_node(
         node_borrowed.default_value = Some(default_value.clone());
         if node_borrowed.value.is_none() {
             node_borrowed.value = Some(default_value.clone());
+            drop(node_borrowed);
+            environment.tree_changed();
         }
     }
 
@@ -838,19 +1292,15 @@ fn apply_advanced_definition_to_node(
         Some(Value::Sequence(allowed_values)) => {
             node.borrow_mut().allowed_values = Some(allowed_values.clone());
         }
-        Some(Value::String(jinja_reference)) => {
-            match resolve_allowed_values_from_jinja_reference(
-                jinja_reference,
-                Rc::clone(context_node),
-                Rc::clone(root_node),
-            ) {
-                Some(allowed_values) => {
+        Some(Value::String(template_text)) => {
+            match resolve_allowed_values_from_template(template_text, context_node, environment) {
+                Ok(allowed_values) => {
                     node.borrow_mut().allowed_values = Some(allowed_values);
                 }
-                None => {
+                Err(reason) => {
                     node.borrow_mut().schema_error = Some(format!(
-                        "could not resolve allowed values from '{}' -> the referenced path is missing or empty",
-                        jinja_reference
+                        "could not resolve allowed values from '{}' -> {}",
+                        template_text, reason
                     ));
                 }
             }
@@ -860,220 +1310,180 @@ fn apply_advanced_definition_to_node(
 }
 
 // =====================================================================
-// JINJA-DRIVEN ALLOWED VALUES
+// TEMPLATE-DRIVEN ALLOWED VALUES
 // =====================================================================
 
-/// Resolves a "{{ reference }}" expression in a schema into the list of
-/// allowed values found at the referenced configuration node. Returns None
-/// when the expression or its target cannot be resolved.
-fn resolve_allowed_values_from_jinja_reference(
-    reference_text: &str,
-    context_node: TreeNodeReference,
-    root_node: TreeNodeReference,
-) -> Option<Vec<Value>> {
-    let captures = jinja_expression_regex().captures(reference_text)?;
-    let reference_path = captures[1].trim();
-
-    let target_node =
-        find_target_node_using_reference_path(reference_path, context_node, root_node)?;
-
-    let allowed_values = collect_allowed_values_from_node(&target_node);
-    if allowed_values.is_empty() {
-        None
-    } else {
-        Some(allowed_values)
-    }
-}
-
-/// Extracts allowed values from a node: list children contribute their
-/// values, mapping children contribute their keys. Leaf nodes fall back to
-/// their raw YAML value.
+/// Evaluates a schema template and reads its result as the list of values the
+/// field may hold.
 ///
-/// System directives ('$'-prefixed keys) are always excluded. Allowed values
-/// are resolved during the validation phase, which runs BEFORE the final
-/// directive cleanup — so a directive that is still unprocessed at this point
-/// (mid-edit in the language server, an unconsumed '$keys', a half-typed
-/// '$override', ...) must never leak into the allowed values.
-fn collect_allowed_values_from_node(target_node: &TreeNodeReference) -> Vec<Value> {
-    let target_borrowed = target_node.borrow();
+/// The template is plain Jinja: whatever list it produces *is* the allowed
+/// set. A mapping is deliberately not accepted — writing
+/// `{{ ROOT.transports }}` leaves it ambiguous whether the keys or the values
+/// were meant, so the schema has to say which with `.keys()` or `.values()`.
+fn resolve_allowed_values_from_template(
+    template_text: &str,
+    context_node: &TreeNodeReference,
+    environment: &SchemaEnvironment,
+) -> Result<Vec<Value>, String> {
+    let scope = environment.scope_for(context_node);
+    let template_source = normalize_schema_template(template_text);
+    let evaluated_value =
+        render_value_template(&template_source, &scope).map_err(|reason| reason.describe())?;
 
-    // Directive children are invisible to allowed-value collection, exactly
-    // like the final output cleanup makes them invisible to the compiled tree.
-    let value_children: Vec<&TreeNodeReference> = target_borrowed
-        .children
-        .iter()
-        .filter(|child| {
-            !child
-                .borrow()
-                .key
-                .as_ref()
-                .is_some_and(|key| key.starts_with('$'))
-        })
-        .collect();
-
-    if !value_children.is_empty() {
-        let all_children_have_numeric_keys = value_children.iter().all(|child| {
-            child
-                .borrow()
-                .key
-                .as_deref()
-                .unwrap_or("")
-                .parse::<usize>()
-                .is_ok()
-        });
-
-        return if all_children_have_numeric_keys {
-            value_children
-                .iter()
-                .filter_map(|child| child.borrow().value.clone())
-                .collect()
-        } else {
-            value_children
-                .iter()
-                .filter_map(|child| child.borrow().key.clone().map(Value::String))
-                .collect()
-        };
-    }
-
-    match &target_borrowed.value {
-        Some(Value::Sequence(sequence)) => sequence.clone(),
-        Some(Value::Mapping(mapping)) => mapping
-            .keys()
-            .filter(|key| !matches!(key, Value::String(text) if text.starts_with('$')))
-            .cloned()
-            .collect(),
-        _ => Vec::new(),
+    match evaluated_value {
+        Value::Sequence(values) if !values.is_empty() => Ok(values),
+        Value::Sequence(_) => Err("the template produced an empty list".to_string()),
+        Value::Mapping(_) => Err(
+            "the template produced a mapping -> add .keys() or .values() to say which of the two constrains the field"
+                .to_string(),
+        ),
+        Value::Null => Err("the template produced nothing".to_string()),
+        single_value => Ok(vec![single_value]),
     }
 }
 
+/// A schema may write its template with or without the surrounding braces:
+/// `"{{ ROOT.regions }}"` and `"ROOT.regions"` mean the same thing where a
+/// template is expected.
+fn normalize_schema_template(template_text: &str) -> String {
+    if contains_template(template_text) {
+        return template_text.to_string();
+    }
+    format!("{{{{ {} }}}}", template_text.trim())
+}
+
 // =====================================================================
-// $conditional_fields
+// $optional
 // =====================================================================
 
-/// Evaluates every "$conditional_fields" block: when an "$if" condition
-/// matches the target node's data, the "$then" sub-schema is applied on top.
-fn apply_conditional_field_blocks(
-    schema_mapping: &Mapping,
+/// Applies the "$optional" block: everything it declares is permitted but
+/// never required. Because it is a full schema block, it may itself carry
+/// `$use`, `$any`, `$keyed_by`, `$advanced_fields` and `$conditional`.
+fn apply_optional_block(
+    block_mapping: &Mapping,
     target_node: TreeNodeReference,
-    root_node: TreeNodeReference,
     schema_origin_name: &str,
-    loaded_schemas: &SchemaCollection,
+    environment: &SchemaEnvironment,
     declarations: &SchemaDeclarations,
+    options: BlockOptions,
 ) -> Result<(), Box<dyn Error>> {
-    let conditional_blocks = match schema_mapping.get("$conditional_fields") {
-        Some(Value::Sequence(conditional_blocks)) => conditional_blocks,
-        _ => return Ok(()),
+    let Some(optional_definition) = block_mapping.get("$optional") else {
+        return Ok(());
+    };
+
+    let Value::Mapping(optional_mapping) = optional_definition else {
+        mark_schema_error(
+            &target_node,
+            "invalid $optional -> expected a mapping of field definitions".to_string(),
+        );
+        return Ok(());
+    };
+
+    apply_nested_schema_block(
+        optional_mapping,
+        target_node,
+        schema_origin_name,
+        environment,
+        declarations,
+        options.optional(),
+    )
+}
+
+// =====================================================================
+// $conditional
+// =====================================================================
+
+/// Evaluates every "$conditional" entry: when its "$if" expression holds for
+/// the node's own data, the "$then" block is applied on top.
+///
+/// The condition is a Jinja expression evaluated in the node's scope, so it
+/// reads the node's fields by name — `$if: "{{ type == 'database' }}"` — and
+/// can reach anywhere else through `ROOT`. A field that is absent simply makes
+/// the condition false.
+fn apply_conditional_blocks(
+    block_mapping: &Mapping,
+    target_node: TreeNodeReference,
+    schema_origin_name: &str,
+    environment: &SchemaEnvironment,
+    declarations: &SchemaDeclarations,
+    options: BlockOptions,
+) -> Result<(), Box<dyn Error>> {
+    let Some(conditional_definition) = block_mapping.get("$conditional") else {
+        return Ok(());
+    };
+
+    let Value::Sequence(conditional_blocks) = conditional_definition else {
+        mark_schema_error(
+            &target_node,
+            "invalid $conditional -> expected a list of $if/$then entries".to_string(),
+        );
+        return Ok(());
     };
 
     for conditional_block in conditional_blocks {
         let Value::Mapping(conditional_mapping) = conditional_block else {
-            continue;
-        };
-        let Some(if_condition) = conditional_mapping.get("$if") else {
+            mark_schema_error(
+                &target_node,
+                "invalid $conditional entry -> expected a mapping with $if and $then".to_string(),
+            );
             continue;
         };
 
-        if !evaluate_condition_block(if_condition, Rc::clone(&target_node)) {
+        if !conditional_block_applies(conditional_mapping, &target_node, environment) {
             continue;
         }
 
-        if let Some(Value::Mapping(then_mapping)) = conditional_mapping.get("$then") {
-            apply_then_block_schema(
-                then_mapping,
-                Rc::clone(&target_node),
-                Rc::clone(&root_node),
-                schema_origin_name,
-                loaded_schemas,
-                declarations,
-            )?;
-        }
+        let Some(Value::Mapping(then_mapping)) = conditional_mapping.get("$then") else {
+            continue;
+        };
+
+        apply_nested_schema_block(
+            then_mapping,
+            Rc::clone(&target_node),
+            schema_origin_name,
+            environment,
+            declarations,
+            options.conditional_then(),
+        )?;
     }
     Ok(())
 }
 
-/// Applies a "$then" sub-schema on top of an already validated node: missing
-/// fields are injected, matching children are re-validated against the
-/// conditional definitions, and advanced fields are applied.
-fn apply_then_block_schema(
-    then_mapping: &Mapping,
-    target_node: TreeNodeReference,
-    root_node: TreeNodeReference,
-    schema_origin_name: &str,
-    loaded_schemas: &SchemaCollection,
-    declarations: &SchemaDeclarations,
-) -> Result<(), Box<dyn Error>> {
-    inject_missing_schema_fields(then_mapping, Rc::clone(&target_node), schema_origin_name);
-
-    apply_field_schemas_to_children(
-        then_mapping,
-        Rc::clone(&target_node),
-        schema_origin_name,
-        Rc::clone(&root_node),
-        loaded_schemas,
-        declarations,
-    )?;
-
-    apply_advanced_field_definitions(then_mapping, target_node, root_node, schema_origin_name)?;
-
-    Ok(())
-}
-
-/// Evaluates an "$if" condition. Mappings combine field-equality checks with
-/// "$and"/"$or" operators; sequences require every entry to hold.
-fn evaluate_condition_block(condition: &Value, target_node: TreeNodeReference) -> bool {
-    match condition {
-        Value::Sequence(conditions) => conditions
-            .iter()
-            .all(|entry| evaluate_condition_block(entry, Rc::clone(&target_node))),
-        Value::Mapping(condition_mapping) => condition_mapping.iter().all(|(key, expected)| {
-            evaluate_condition_entry(key, expected, Rc::clone(&target_node))
-        }),
-        _ => false,
-    }
-}
-
-fn evaluate_condition_entry(
-    condition_key: &Value,
-    expected_value: &Value,
-    target_node: TreeNodeReference,
+fn conditional_block_applies(
+    conditional_mapping: &Mapping,
+    target_node: &TreeNodeReference,
+    environment: &SchemaEnvironment,
 ) -> bool {
-    let Value::String(condition_name) = condition_key else {
-        return true;
+    let Some(condition) = conditional_mapping.get("$if") else {
+        mark_schema_error(
+            target_node,
+            "invalid $conditional entry -> expected an $if condition".to_string(),
+        );
+        return false;
     };
 
-    match condition_name.as_str() {
-        "$or" => evaluate_or_condition(expected_value, target_node),
-        "$and" => evaluate_condition_block(expected_value, target_node),
-        field_name => field_has_expected_value(field_name, expected_value, target_node),
-    }
-}
+    let Value::String(condition_source) = condition else {
+        mark_schema_error(
+            target_node,
+            "invalid $if -> expected a Jinja expression, for example \"{{ type == 'database' }}\""
+                .to_string(),
+        );
+        return false;
+    };
 
-fn evaluate_or_condition(condition: &Value, target_node: TreeNodeReference) -> bool {
-    match condition {
-        Value::Sequence(alternatives) => alternatives
-            .iter()
-            .any(|entry| evaluate_condition_block(entry, Rc::clone(&target_node))),
-        // A malformed $or (not a sequence) matches everything, mirroring the
-        // permissive behavior of the original engine.
-        _ => true,
-    }
-}
-
-fn field_has_expected_value(
-    field_name: &str,
-    expected_value: &Value,
-    target_node: TreeNodeReference,
-) -> bool {
-    let children = target_node.borrow().children.clone();
-
-    for child in children {
-        let child_borrowed = child.borrow();
-        if child_borrowed.key.as_deref() == Some(field_name) {
-            return child_borrowed
-                .value
-                .as_ref()
-                .is_some_and(|child_value| child_value == expected_value);
+    let scope = environment.scope_for(target_node);
+    match evaluate_condition(condition_source, &scope) {
+        Ok(condition_holds) => condition_holds,
+        Err(reason) => {
+            mark_schema_error(
+                target_node,
+                format!(
+                    "$if '{}' could not be evaluated -> {}",
+                    condition_source,
+                    reason.describe()
+                ),
+            );
+            false
         }
     }
-    false
 }

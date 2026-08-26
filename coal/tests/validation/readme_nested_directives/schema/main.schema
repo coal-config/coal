@@ -1,0 +1,20 @@
+$declare:
+  tuning_block:
+    cache_size: integer
+    $optional:
+      swap: bool
+
+kind: string
+$conditional:
+  - $if: "{{ kind == 'database' }}"
+    $then:
+      db_port: integer
+      $optional:
+        tuning:
+          $use: "tuning_block"
+          $optional:
+            notes: string
+        $conditional:
+          - $if: "{{ db_port > 1024 }}"
+            $then:
+              notes: string

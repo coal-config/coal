@@ -1,0 +1,4 @@
+obj:
+  needed: integer
+  $optional:
+    $keyed_by: "{{ ROOT.does_not_exist.keys() }}"

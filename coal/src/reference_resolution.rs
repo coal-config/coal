@@ -1,23 +1,22 @@
-use crate::tree_operations::clone_tree_node_recursively;
+//! Reference plumbing: navigating to a node by path, resolving `$parentN`
+//! placeholders, and driving the Jinja engine over the whole tree.
+//!
+//! The templating itself lives in [`crate::jinja_engine`]; this module decides
+//! *when* templates are evaluated and what happens to the results.
+
+use crate::jinja_engine::{
+    TemplateError, TemplateScope, contains_template, emits_literal_delimiters,
+    prepare_tree_for_templates, render_template_text, render_value_template,
+    value_contains_template,
+};
+use crate::tree_operations::rebuild_node_children_from_value;
 use crate::type_aliases::TreeNodeReference;
+use minijinja::Value as JinjaValue;
 use regex::Regex;
 use serde_yaml::Value;
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::OnceLock;
-
-static JINJA_EXPRESSION_REGEX: OnceLock<Regex> = OnceLock::new();
-static JINJA_EXACT_MATCH_REGEX: OnceLock<Regex> = OnceLock::new();
-
-/// Matches any Jinja expression ("{{ ... }}") inside a string.
-pub fn jinja_expression_regex() -> &'static Regex {
-    JINJA_EXPRESSION_REGEX.get_or_init(|| Regex::new(r"\{\{\s*([^}]+)\s*\}\}").unwrap())
-}
-
-/// Matches strings that consist of exactly one Jinja expression and nothing else.
-pub fn jinja_exact_match_regex() -> &'static Regex {
-    JINJA_EXACT_MATCH_REGEX.get_or_init(|| Regex::new(r"^\{\{\s*([^}]+)\s*\}\}$").unwrap())
-}
 
 // =====================================================================
 // PATH NAVIGATION
@@ -27,6 +26,11 @@ pub fn jinja_exact_match_regex() -> &'static Regex {
 /// "ROOT."-prefixed paths resolve from the tree root, "."-prefixed paths
 /// climb one parent per leading dot, and bare paths search upward through
 /// every enclosing scope before falling back to the root.
+///
+/// This is COAL's own path syntax, used by directives that point at another
+/// node (`$inherit`, `$override`, `$extend`, `$select`) and by the language
+/// server. It is not Jinja: a directive value is rendered as a template first
+/// and the resulting text is then read as a path.
 pub fn find_target_node_using_reference_path(
     path: &str,
     current_node: TreeNodeReference,
@@ -157,264 +161,252 @@ fn ancestor_key_at_level(node: &TreeNodeReference, levels_up: usize) -> Option<S
 }
 
 // =====================================================================
-// JINJA STRING RESOLUTION
+// SINGLE-STRING RESOLUTION
 // =====================================================================
 
-/// Replaces every resolvable Jinja expression inside the input string with
-/// the scalar value of the referenced node. Unresolvable expressions are
-/// left in place.
+/// Renders a template in the scope of `current_node` and returns the text.
+/// Used by the directives that need a string before the tree is finished —
+/// include paths, inheritance targets, counter names — and by the language
+/// server. A template that cannot be rendered is returned unchanged, so a
+/// reference to an as-yet-unbuilt part of the tree simply stays as written.
 pub fn resolve_jinja_reference_string(
     input: &str,
     current_node: TreeNodeReference,
     root_node: TreeNodeReference,
 ) -> String {
-    let mut resolved_result = input.to_string();
-
-    for captures in jinja_expression_regex().captures_iter(input) {
-        let reference_path = captures[1].trim();
-        let placeholder = &captures[0];
-
-        if let Some(target_node) = find_target_node_using_reference_path(
-            reference_path,
-            Rc::clone(&current_node),
-            Rc::clone(&root_node),
-        ) {
-            let target_text = scalar_value_as_string(&target_node.borrow().value);
-            if !target_text.is_empty() {
-                resolved_result = resolved_result.replace(placeholder, &target_text);
-            }
-        }
+    if !contains_template(input) {
+        return input.to_string();
     }
-    resolved_result
-}
 
-fn scalar_value_as_string(value: &Option<Value>) -> String {
-    match value {
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Number(number)) => number.to_string(),
-        Some(Value::Bool(boolean)) => boolean.to_string(),
-        _ => String::new(),
-    }
+    let scope = TemplateScope::for_node(&current_node, &root_node);
+    render_template_text(input, &scope).unwrap_or_else(|_| input.to_string())
 }
 
 // =====================================================================
 // TREE-WIDE JINJA RESOLUTION
 // =====================================================================
 
-/// Resolves all Jinja templates in the tree. Values that consist of exactly
-/// one expression adopt the referenced node's full structure; values with
-/// embedded expressions receive string substitution.
+/// A backstop on the number of passes. Every pass resolves at least one field
+/// or ends the loop, so this is only ever reached by a configuration with a
+/// reference chain thousands of links long.
+const MAX_RESOLUTION_PASSES: usize = 1024;
+
+/// Resolves every Jinja template in the tree.
 ///
-/// Reference cycles (a field that resolves, directly or transitively, back to
-/// itself) are detected via a visited-path set: the loop is broken, the
-/// offending template is left unresolved, and a warning naming each cyclic
-/// reference is printed once.
+/// Rendering happens in passes. Each pass renders every field whose own
+/// references are already resolved, and another pass follows for as long as
+/// that moves something forward. A field that references a field that
+/// references a value therefore resolves in as many passes as the chain is
+/// long, regardless of the order the fields are written in — and a field is
+/// never rendered against a reference that is still a template.
+///
+/// Each pass renders against the tree as it stood when the pass began and only
+/// writes the results afterwards, so no field can see half of another field's
+/// resolution.
+///
+/// Fields that never become renderable — a reference cycle, a name that does
+/// not exist, a filter used on the wrong kind of value — are left in the
+/// output as written, and a warning explaining each one is printed to stderr.
 pub fn resolve_all_jinja_values_in_tree(node: TreeNodeReference, root_node: TreeNodeReference) {
-    let mut visited_paths = HashSet::new();
-    let mut circular_references = HashSet::new();
-    resolve_jinja_values_recursively(
-        node,
-        root_node,
-        &mut visited_paths,
-        &mut circular_references,
-    );
-    report_circular_references(&circular_references);
+    let mut last_reasons = BTreeMap::new();
+    let mut exhausted_passes = false;
+
+    // The first round resolves everything that can be resolved without any
+    // give: a field waits for every field it reads. The second round then lets
+    // the fields that read their own container go ahead, which is the one
+    // shape that would otherwise wait for itself.
+    for relax_enclosing_scopes in [false, true] {
+        let (reasons, ran_out_of_passes) =
+            run_resolution_rounds(&node, &root_node, relax_enclosing_scopes);
+        last_reasons = reasons;
+        exhausted_passes |= ran_out_of_passes;
+    }
+
+    report_unresolved_templates(node, &last_reasons, exhausted_passes);
 }
 
-fn report_circular_references(circular_references: &HashSet<String>) {
-    for reference in circular_references {
-        eprintln!(
-            "Warning: circular Jinja reference left unresolved ({}).",
-            reference
-        );
-    }
-}
-
-fn resolve_jinja_values_recursively(
-    node: TreeNodeReference,
-    root_node: TreeNodeReference,
-    visited_paths: &mut HashSet<String>,
-    circular_references: &mut HashSet<String>,
-) {
-    let current_path = node.borrow().get_path();
-    if visited_paths.contains(&current_path) {
-        return;
-    }
-    visited_paths.insert(current_path.clone());
-
-    resolve_jinja_values_in_children(&node, &root_node, visited_paths, circular_references);
-
-    let substitution_occurred =
-        resolve_jinja_value_of_node(&node, &root_node, visited_paths, circular_references);
-
-    visited_paths.remove(&current_path);
-    if substitution_occurred {
-        resolve_jinja_values_recursively(node, root_node, visited_paths, circular_references);
-    }
-}
-
-fn resolve_jinja_values_in_children(
+fn run_resolution_rounds(
     node: &TreeNodeReference,
     root_node: &TreeNodeReference,
-    visited_paths: &mut HashSet<String>,
-    circular_references: &mut HashSet<String>,
-) {
+    relax_enclosing_scopes: bool,
+) -> (BTreeMap<String, TemplateError>, bool) {
+    let mut last_reasons = BTreeMap::new();
+
+    for _ in 0..MAX_RESOLUTION_PASSES {
+        let mut pass = ResolutionPass {
+            root_node: Rc::clone(root_node),
+            prepared_tree: prepare_tree_for_templates(Rc::clone(root_node)),
+            relax_enclosing_scopes,
+            resolved_values: Vec::new(),
+            reasons: BTreeMap::new(),
+        };
+
+        collect_resolved_values(Rc::clone(node), &mut pass);
+        let ResolutionPass {
+            resolved_values,
+            reasons,
+            ..
+        } = pass;
+        last_reasons = reasons;
+
+        if resolved_values.is_empty() {
+            return (last_reasons, false);
+        }
+
+        for (resolved_node, resolved_value) in resolved_values {
+            apply_resolved_value(&resolved_node, resolved_value);
+        }
+    }
+
+    (last_reasons, true)
+}
+
+/// One pass over the tree. Nothing is written while a pass is running: the
+/// results are collected first and applied afterwards, so every field in the
+/// pass sees exactly the same tree.
+struct ResolutionPass {
+    root_node: TreeNodeReference,
+    /// The tree as it stood when the pass began, ready for the engine.
+    prepared_tree: JinjaValue,
+    /// Whether a field reading its own container may go ahead.
+    relax_enclosing_scopes: bool,
+    /// What this pass resolved, waiting to be written.
+    resolved_values: Vec<(TreeNodeReference, Value)>,
+    /// Why each field could not be rendered, keyed by field path.
+    reasons: BTreeMap<String, TemplateError>,
+}
+
+fn collect_resolved_values(node: TreeNodeReference, pass: &mut ResolutionPass) {
+    collect_resolved_value_of_node(&node, pass);
+
     let children = node.borrow().children.clone();
     for child in children {
-        resolve_jinja_values_recursively(
-            child,
-            Rc::clone(root_node),
-            visited_paths,
-            circular_references,
+        collect_resolved_values(child, pass);
+    }
+}
+
+fn collect_resolved_value_of_node(node: &TreeNodeReference, pass: &mut ResolutionPass) {
+    let Some(template_text) = template_text_of_node(node) else {
+        return;
+    };
+
+    let mut scope = TemplateScope::for_node(node, &pass.root_node)
+        .with_prepared_tree(pass.prepared_tree.clone());
+    if pass.relax_enclosing_scopes {
+        scope = scope.relaxed();
+    }
+
+    match render_value_template(&template_text, &scope) {
+        // The field read itself. A field that reads the object it lives in —
+        // `{{ PARENT }}`, or anything that takes ROOT as a whole — gets its own
+        // template back as part of the answer, and accepting that would write
+        // the reference into its own value. Only a `{% raw %}` block is meant
+        // to produce text that looks like a template.
+        Ok(resolved_value)
+            if value_contains_text(&resolved_value, &template_text)
+                && !emits_literal_delimiters(&template_text) =>
+        {
+            pass.reasons.insert(
+                node.borrow().get_path(),
+                TemplateError::Failed("it resolves to a copy of itself".to_string()),
+            );
+        }
+        Ok(resolved_value) => pass.resolved_values.push((Rc::clone(node), resolved_value)),
+        Err(reason) => {
+            pass.reasons.insert(node.borrow().get_path(), reason);
+        }
+    }
+}
+
+/// Writes a resolved value onto its field. A value that came out as a list or
+/// a mapping becomes real tree nodes, so the rest of the pipeline treats it
+/// exactly like structure that was written by hand.
+fn apply_resolved_value(node: &TreeNodeReference, resolved_value: Value) {
+    if matches!(resolved_value, Value::Sequence(_) | Value::Mapping(_)) {
+        rebuild_node_children_from_value(node, &resolved_value);
+    }
+
+    let mut node_borrowed = node.borrow_mut();
+    node_borrowed.value = Some(resolved_value);
+    node_borrowed.template_resolved = true;
+}
+
+/// Whether the value holds `text` anywhere inside it.
+fn value_contains_text(value: &Value, text: &str) -> bool {
+    match value {
+        Value::String(candidate) => candidate.contains(text),
+        Value::Sequence(sequence) => sequence.iter().any(|item| value_contains_text(item, text)),
+        Value::Mapping(mapping) => mapping
+            .values()
+            .any(|entry| value_contains_text(entry, text)),
+        _ => false,
+    }
+}
+
+/// A field carries a template only when its own value is text containing one
+/// and the engine has not already finished with it. Nodes with children hold a
+/// mapping or a sequence that is rebuilt from those children, so there is
+/// nothing to render on them directly.
+fn template_text_of_node(node: &TreeNodeReference) -> Option<String> {
+    let node_borrowed = node.borrow();
+    if !node_borrowed.children.is_empty() || node_borrowed.template_resolved {
+        return None;
+    }
+
+    match node_borrowed.value {
+        Some(Value::String(ref text)) if contains_template(text) => Some(text.clone()),
+        _ => None,
+    }
+}
+
+// =====================================================================
+// REPORTING
+// =====================================================================
+
+fn report_unresolved_templates(
+    node: TreeNodeReference,
+    reasons: &BTreeMap<String, TemplateError>,
+    exhausted_passes: bool,
+) {
+    let mut stuck_fields = Vec::new();
+    collect_unresolved_fields(node, &mut stuck_fields);
+
+    for field_path in stuck_fields {
+        let field_label = if field_path.is_empty() {
+            "<root>".to_string()
+        } else {
+            field_path.clone()
+        };
+
+        let reason = match reasons.get(&field_path) {
+            Some(reason) => reason.describe(),
+            None if exhausted_passes => "the reference chain is too long to resolve".to_string(),
+            None => "the reference could not be resolved".to_string(),
+        };
+
+        eprintln!(
+            "Warning: Jinja template on '{}' left unresolved ({}).",
+            field_label, reason
         );
     }
 }
 
-fn resolve_jinja_value_of_node(
-    node: &TreeNodeReference,
-    root_node: &TreeNodeReference,
-    visited_paths: &mut HashSet<String>,
-    circular_references: &mut HashSet<String>,
-) -> bool {
-    let node_text = node
-        .borrow()
-        .value
-        .as_ref()
-        .and_then(|value| value.as_str())
-        .map(|text| text.to_string());
-
-    if let Some(text) = node_text {
-        if let Some(captures) = jinja_exact_match_regex().captures(&text) {
-            return substitute_exact_jinja_reference(
-                node,
-                root_node,
-                visited_paths,
-                circular_references,
-                &captures[1],
-            );
-        } else if jinja_expression_regex().is_match(&text) {
-            return substitute_embedded_jinja_references(
-                node,
-                root_node,
-                visited_paths,
-                circular_references,
-                &text,
-            );
-        }
-    }
-    false
-}
-
-fn substitute_exact_jinja_reference(
-    node: &TreeNodeReference,
-    root_node: &TreeNodeReference,
-    visited_paths: &mut HashSet<String>,
-    circular_references: &mut HashSet<String>,
-    reference_path: &str,
-) -> bool {
-    let reference_path = reference_path.trim();
-    if let Some(target_node) =
-        find_target_node_using_reference_path(reference_path, Rc::clone(node), Rc::clone(root_node))
+fn collect_unresolved_fields(node: TreeNodeReference, stuck_fields: &mut Vec<String>) {
     {
-        let target_path = target_node.borrow().get_path();
-
-        if !visited_paths.contains(&target_path) {
-            resolve_jinja_values_recursively(
-                Rc::clone(&target_node),
-                Rc::clone(root_node),
-                visited_paths,
-                circular_references,
-            );
-            // Only report progress (and trigger a re-resolution pass) when the
-            // value actually changed. Adopting a target that is itself an
-            // unresolved template copies an identical value, and reporting
-            // that as progress would loop forever on mutual references such as
-            // `b -> c -> b`.
-            return adopt_target_node_structure(node, &target_node);
-        }
-
-        // The target is already being resolved further up the call stack, so
-        // following it would loop. Break here and record the cycle.
-        record_circular_reference(node, reference_path, circular_references);
-    }
-    false
-}
-
-fn record_circular_reference(
-    node: &TreeNodeReference,
-    reference_path: &str,
-    circular_references: &mut HashSet<String>,
-) {
-    let node_path = node.borrow().get_path();
-    let field = if node_path.is_empty() {
-        "<root>".to_string()
-    } else {
-        node_path
-    };
-    circular_references.insert(format!("'{}' -> '{}'", field, reference_path));
-}
-
-/// Copies the target node's value and deep-cloned children onto the node,
-/// replacing its previous contents. Returns whether the node's value actually
-/// changed, which the caller uses to decide if another resolution pass could
-/// make further progress.
-fn adopt_target_node_structure(node: &TreeNodeReference, target_node: &TreeNodeReference) -> bool {
-    let (target_value, target_children) = {
-        let target_borrowed = target_node.borrow();
-        (
-            target_borrowed.value.clone(),
-            target_borrowed.children.clone(),
-        )
-    };
-
-    let value_changed = node.borrow().value != target_value;
-
-    {
-        let mut node_borrowed = node.borrow_mut();
-        node_borrowed.value = target_value;
-        node_borrowed.children.clear();
-    }
-
-    for child in target_children {
-        let cloned_child = clone_tree_node_recursively(child, Rc::clone(node));
-        node.borrow_mut().children.push(cloned_child);
-    }
-
-    value_changed
-}
-
-fn substitute_embedded_jinja_references(
-    node: &TreeNodeReference,
-    root_node: &TreeNodeReference,
-    visited_paths: &mut HashSet<String>,
-    circular_references: &mut HashSet<String>,
-    text: &str,
-) -> bool {
-    for captures in jinja_expression_regex().captures_iter(text) {
-        let reference_path = captures[1].trim();
-        if let Some(target_node) = find_target_node_using_reference_path(
-            reference_path,
-            Rc::clone(node),
-            Rc::clone(root_node),
-        ) {
-            let target_path = target_node.borrow().get_path();
-            if !visited_paths.contains(&target_path) {
-                resolve_jinja_values_recursively(
-                    Rc::clone(&target_node),
-                    Rc::clone(root_node),
-                    visited_paths,
-                    circular_references,
-                );
-            } else {
-                record_circular_reference(node, reference_path, circular_references);
-            }
+        let node_borrowed = node.borrow();
+        let is_stuck = !node_borrowed.template_resolved
+            && node_borrowed.children.is_empty()
+            && node_borrowed
+                .value
+                .as_ref()
+                .is_some_and(value_contains_template);
+        if is_stuck {
+            stuck_fields.push(node_borrowed.get_path());
         }
     }
 
-    let resolved_text = resolve_jinja_reference_string(text, Rc::clone(node), Rc::clone(root_node));
-    if resolved_text != text {
-        node.borrow_mut().value = Some(Value::String(resolved_text));
-        return true;
+    let children = node.borrow().children.clone();
+    for child in children {
+        collect_unresolved_fields(child, stuck_fields);
     }
-    false
 }

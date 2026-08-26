@@ -1,0 +1,9 @@
+- type: MissingMandatoryField
+  path: source.b
+  contains: "expected object"
+- type: MissingMandatoryField
+  path: source.b.x
+  contains: "expected integer"
+- type: FieldNotAllowed
+  path: target.b
+  contains: "not allowed"

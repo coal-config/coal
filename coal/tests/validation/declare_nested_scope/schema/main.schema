@@ -1,0 +1,8 @@
+cluster:
+  $declare:
+    endpoint:
+      address: string
+  primary:
+    $use: "endpoint"
+  secondary:
+    $use: "endpoint"

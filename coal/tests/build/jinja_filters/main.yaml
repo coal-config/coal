@@ -1,0 +1,15 @@
+hosts:
+  - name: alpha
+    zone: eu
+  - name: beta
+    zone: us
+  - name: gamma
+    zone: eu
+transports:
+  tcp: 1
+  udp: 2
+eu_hosts: "{{ hosts | selectattr('zone', 'eq', 'eu') | map(attribute='name') | list }}"
+all_names: "{{ hosts | map(attribute='name') | join(', ') }}"
+transport_entries: "{{ transports | dict2items }}"
+sorted_names: "{{ hosts | map(attribute='name') | sort | list }}"
+upper_first: "{{ hosts[0].name.upper() }}"

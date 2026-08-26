@@ -1,0 +1,11 @@
+$declare:
+  addressing:
+    address: string
+  naming:
+    hostname: string
+
+node_1:
+  $use:
+    - addressing
+    - naming
+  role: string

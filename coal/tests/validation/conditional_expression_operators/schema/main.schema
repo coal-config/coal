@@ -1,0 +1,10 @@
+environment: string
+type: string
+port: integer
+$conditional:
+  - $if: "{{ type in ['database', 'cache'] and port > 1024 }}"
+    $then:
+      credentials: string
+  - $if: "{{ ROOT.environment == 'production' }}"
+    $then:
+      replicas: integer

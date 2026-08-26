@@ -1,0 +1,15 @@
+services:
+  api:
+    port: 8080
+  worker:
+    port: 9090
+endpoints: |
+  {% for name, service in services.items() %}
+  - name: {{ name }}
+    url: "http://{{ name }}:{{ service.port }}"
+  {% endfor %}
+port_list: |
+  {% for service in services.values() %}
+  - {{ service.port }}
+  {% endfor %}
+summary: "{% for name in services.keys() %}{{ name }} {% endfor %}"

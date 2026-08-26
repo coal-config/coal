@@ -1,0 +1,6 @@
+- type: SchemaError
+  path: ROOT
+  contains: "could not be evaluated"
+- type: SchemaError
+  path: chosen
+  contains: "which is itself unresolved"

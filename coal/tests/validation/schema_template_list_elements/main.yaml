@@ -1,0 +1,6 @@
+clusters:
+  - prod
+  - staging
+assigned:
+  - staging
+  - test

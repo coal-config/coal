@@ -1,0 +1,9 @@
+items:
+  - hello
+  - second
+letters: 5
+picked: hello
+same: true
+shouting: HELLO
+source: hello
+word: hello

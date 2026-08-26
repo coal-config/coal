@@ -1,0 +1,7 @@
+environment: string
+service:
+  name: string
+  $conditional:
+    - $if: "{{ ROOT.environment == 'production' }}"
+      $then:
+        replicas: integer

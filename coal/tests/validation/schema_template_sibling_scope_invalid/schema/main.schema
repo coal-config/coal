@@ -1,0 +1,6 @@
+transports:
+  $any:
+    hosts: "[string]"
+link:
+  transport: "{{ ROOT.transports.keys() }}"
+  host: "{{ ROOT.transports[transport].hosts }}"
