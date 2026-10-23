@@ -6,7 +6,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.4.7"
+version = "1.0.0"
 authors = ["Yannick Walen <y.walen@gmail.com>"]
 edition = "2024"
 rust-version = "1.89"
