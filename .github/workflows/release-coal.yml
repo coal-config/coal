@@ -131,7 +131,7 @@ jobs:
           dpkg-deb --build ${DEB_DIR}
 
       - name: Upload Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.versioning.outputs.new_tag }}
           files: |
@@ -140,3 +140,13 @@ jobs:
             *.deb
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Builds the Debian and PPA source packages for the new tag, tests them, and
+  # uploads them to the Launchpad PPA and to mentors.debian.net. A tag pushed
+  # with GITHUB_TOKEN starts no other workflow, so it is called from here.
+  debian:
+    needs: [versioning, build-and-release]
+    uses: ./.github/workflows/debian.yml
+    with:
+      tag: ${{ needs.versioning.outputs.new_tag }}
+    secrets: inherit

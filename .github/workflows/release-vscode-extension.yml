@@ -83,7 +83,7 @@ jobs:
           npx vsce package -o coal-extension-${{ needs.versioning.outputs.new_version }}.vsix
 
       - name: Upload Extension to Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.versioning.outputs.new_tag }}
           files: "coal_extension/*.vsix"

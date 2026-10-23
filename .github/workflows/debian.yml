@@ -1,0 +1,217 @@
+name: Debian and Ubuntu packages
+
+# On every push and pull request this builds the Debian package against
+# Debian unstable's crates and the PPA packages for the Ubuntu releases, and
+# runs the autopkgtests on each. Nothing is uploaded.
+#
+# For a release, release-coal.yml calls it with the new tag, and then the
+# source packages are signed and uploaded: to the Launchpad PPA, and to
+# mentors.debian.net for a sponsor to upload to Debian. It can also be run by
+# hand for a tag that already exists (Actions > Debian and Ubuntu packages >
+# Run workflow).
+#
+# The packaging comes from main (or packaging_ref), the source from the tag,
+# so a Debian revision such as 1.0.0-2 needs no new upstream release.
+#
+# Uploading needs these repository secrets:
+#   DEBIAN_SIGNING_KEY         ASCII-armored secret key, registered on
+#                              Launchpad and mentors.debian.net
+#   DEBIAN_SIGNING_PASSPHRASE  its passphrase, if it has one
+# Without DEBIAN_SIGNING_KEY the upload job says so and does nothing.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "coal/**"
+      - "coal-lsp/**"
+      - "Cargo.*"
+      - "doc/**"
+      - "example/**"
+      - "packaging/**"
+      - ".github/workflows/debian.yml"
+  pull_request:
+    paths:
+      - "coal/**"
+      - "coal-lsp/**"
+      - "Cargo.*"
+      - "doc/**"
+      - "example/**"
+      - "packaging/**"
+      - ".github/workflows/debian.yml"
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to package, e.g. coal-v1.0.0
+        type: string
+        required: true
+      upload:
+        description: Sign and upload the source packages
+        type: boolean
+        default: true
+      packaging_ref:
+        description: Branch or commit to take packaging/ from
+        type: string
+        default: main
+      ppa_revision:
+        description: Raise it to upload the same version to the PPA again
+        type: string
+        default: "1"
+      upload_to:
+        description: Where to upload, "ppa mentors", "ppa" or "mentors"
+        type: string
+        default: ppa mentors
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to package, e.g. coal-v1.0.0
+        type: string
+        required: true
+      upload:
+        description: Sign and upload the source packages
+        type: boolean
+        default: true
+      packaging_ref:
+        description: Branch or commit to take packaging/ from
+        type: string
+        default: main
+      ppa_revision:
+        description: Raise it to upload the same version to the PPA again
+        type: string
+        default: "1"
+      upload_to:
+        description: Where to upload
+        type: choice
+        options:
+          - ppa mentors
+          - ppa
+          - mentors
+        default: ppa mentors
+
+permissions:
+  contents: read
+
+env:
+  # Ubuntu releases the PPA is built for. Keep in sync with the test matrix.
+  PPA_SERIES: noble resolute stonking
+
+jobs:
+  sources:
+    name: Source packages
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A release takes the packaging from main; a push or pull request
+          # tests its own commit.
+          ref: ${{ inputs.tag && inputs.packaging_ref || '' }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends devscripts dpkg-dev python3 xz-utils
+
+      - name: Upstream tarball
+        run: |
+          orig="$(bash packaging/ci/debian.sh orig "${{ inputs.tag || 'HEAD' }}" out/debian)"
+          echo "ORIG=$orig" >> "$GITHUB_ENV"
+
+      - name: Debian source package
+        run: bash packaging/ci/debian.sh source "$ORIG" out/debian
+
+      - name: PPA source packages
+        run: |
+          for series in $PPA_SERIES; do
+            ORIG="$ORIG" OUT=out/ppa bash packaging/ppa/build-ppa-source.sh "$series" "${{ inputs.ppa_revision || '1' }}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-packages
+          path: |
+            out/debian/*.dsc
+            out/debian/*.tar.*
+            out/debian/*_source.*
+            out/ppa/*/*.dsc
+            out/ppa/*/*.tar.*
+            out/ppa/*/*_source.*
+          if-no-files-found: error
+
+  test:
+    name: Build and autopkgtest (${{ matrix.name }})
+    needs: sources
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian unstable
+            image: debian:sid
+            dsc: debian/coal_*.dsc
+            lintian: --lintian
+          - name: Ubuntu 24.04 PPA
+            image: ubuntu:24.04
+            dsc: ppa/noble/coal_*.dsc
+          - name: Ubuntu 26.04 PPA
+            image: ubuntu:26.04
+            dsc: ppa/resolute/coal_*.dsc
+          - name: Ubuntu 26.10 PPA
+            image: ubuntu:26.10
+            dsc: ppa/stonking/coal_*.dsc
+    steps:
+      # The images have no git, so this downloads the tree instead.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag && inputs.packaging_ref || '' }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-packages
+          path: out
+
+      - name: Build and test
+        run: |
+          set -- out/${{ matrix.dsc }}
+          bash packaging/ci/debian.sh test "$1" ${{ matrix.lintian }}
+
+  upload:
+    name: Sign and upload
+    needs: test
+    if: inputs.tag && inputs.upload
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.packaging_ref }}
+          sparse-checkout: packaging
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-packages
+          path: out
+
+      - name: Install upload tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends devscripts dput gnupg
+
+      - name: Upload to the PPA and to mentors.debian.net
+        env:
+          DEBIAN_SIGNING_KEY: ${{ secrets.DEBIAN_SIGNING_KEY }}
+          DEBIAN_SIGNING_PASSPHRASE: ${{ secrets.DEBIAN_SIGNING_PASSPHRASE }}
+        run: |
+          if [ -z "$DEBIAN_SIGNING_KEY" ]; then
+            echo "::warning::DEBIAN_SIGNING_KEY is not set, so nothing was uploaded. See packaging/README.md."
+            exit 0
+          fi
+          case " ${{ inputs.upload_to }} " in *" ppa "*)
+            for changes in out/ppa/*/coal_*_source.changes; do
+              bash packaging/ci/debian.sh upload ppa "$changes"
+            done ;;
+          esac
+          case " ${{ inputs.upload_to }} " in *" mentors "*)
+            bash packaging/ci/debian.sh upload mentors out/debian/coal_*_source.changes ;;
+          esac

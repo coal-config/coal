@@ -8,7 +8,7 @@ Owner: Yannick Walen <y.walen@gmail.com>
 X-Debbugs-Cc: debian-devel@lists.debian.org, y.walen@gmail.com
 
 * Package name    : coal
-  Version         : 0.4.8
+  Version         : 1.0.0
   Upstream Contact: Yannick Walen <y.walen@gmail.com>
 * URL             : https://github.com/coal-config/coal
 * License         : Apache-2.0

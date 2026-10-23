@@ -1,3 +1,5 @@
 # release.toml
 shared-version = true
 tag-name = "coal-v{{version}}"
+# Adds the packaging/debian/changelog entry, so it is part of the release commit.
+pre-release-hook = ["sh", "-c", "sh \"$WORKSPACE_ROOT/packaging/tools/bump-debian-changelog.sh\""]

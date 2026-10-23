@@ -1,5 +1,5 @@
 To: submit@bugs.debian.org
-Subject: RFS: coal/0.4.8-1 [ITP] -- compiler for YAML configurations split over a directory tree
+Subject: RFS: coal/1.0.0-1 [ITP] -- compiler for YAML configurations split over a directory tree
 
 Package: sponsorship-requests
 Severity: wishlist
@@ -10,7 +10,7 @@ Dear mentors,
 I am looking for a sponsor for my package "coal":
 
  * Package name     : coal
-   Version          : 0.4.8-1
+   Version          : 1.0.0-1
    Upstream contact : Yannick Walen <y.walen@gmail.com>
  * URL              : https://github.com/coal-config/coal
  * License          : Apache-2.0
@@ -30,7 +30,7 @@ following URL:
 Alternatively, you can download the package with 'dget' using this
 command:
 
-  dget -x https://mentors.debian.net/debian/pool/main/c/coal/coal_0.4.8-1.dsc
+  dget -x https://mentors.debian.net/debian/pool/main/c/coal/coal_1.0.0-1.dsc
 
 Notes for the reviewer:
 
@@ -51,7 +51,7 @@ Notes for the reviewer:
 
 Changes for the initial release:
 
- coal (0.4.8-1) unstable; urgency=medium
+ coal (1.0.0-1) unstable; urgency=medium
  .
    * Initial release. (Closes: #ITPBUG)
 

@@ -7,9 +7,11 @@
 #                 or tenacious (27.04)
 #   ppa-revision  bump it to re-upload the same coal version (default 1)
 #
-# Run it from a checkout of a release tag (git checkout coal-v0.4.8). It
-# needs git, cargo, dpkg-dev, devscripts, python3 and xz-utils, and network
-# access once, to download the crates it bundles.
+# The version comes from packaging/debian/changelog: 1.0.0-1 becomes
+# 1.0.0-1~ppa1~ubuntu24.04. It needs git, cargo, dpkg-dev, devscripts, python3
+# and xz-utils, and network access once, to download the crates it bundles.
+# The GitHub workflow .github/workflows/debian.yml runs it and uploads the
+# result; by hand, packaging/ci/debian.sh upload does the signing and upload.
 #
 # The crates go into a second upstream tarball (coal_<v>.orig-vendor.tar.xz),
 # so Launchpad builds offline with exactly the versions in Cargo.lock. The
@@ -20,7 +22,8 @@
 #
 # Environment:
 #   ORIG=<file>   use this upstream tarball instead of `git archive HEAD`
-#                 (pass the GitHub tag tarball to match what Debian uses)
+#                 (pass the GitHub tag tarball, coal-v<version>.tar.gz, to
+#                 match what Debian uses)
 #   OUT=<dir>     where to put the results (default: target/ppa)
 set -euo pipefail
 
@@ -29,8 +32,11 @@ revision="${2:-1}"
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-version="$(sed -n 's/^version = "\(.*\)"\r\{0,1\}$/\1/p' "$repo/Cargo.toml" | head -n 1)"
-[ -n "$version" ] || { echo "could not read the version from Cargo.toml" >&2; exit 1; }
+changelog="$repo/packaging/debian/changelog"
+debian_version="$(dpkg-parsechangelog -l "$changelog" -S Version)"
+version="${debian_version%-*}"
+# Fixed timestamps keep the vendor tarball byte-identical between runs.
+timestamp="$(dpkg-parsechangelog -l "$changelog" -S Timestamp)"
 
 # The oldest rustc coal builds with is 1.89. The two LTS releases default to
 # older ones (24.04: 1.75) or have debhelper 13, so they get a versioned
@@ -47,7 +53,7 @@ case "$series" in
     *) echo "unknown series '$series' (noble, resolute, stonking or tenacious)" >&2; exit 1 ;;
 esac
 
-out="${OUT:-$repo/target/ppa}"
+out="$(mkdir -p "${OUT:-$repo/target/ppa}" && cd "${OUT:-$repo/target/ppa}" && pwd)"
 work="$out/$series"
 src="$work/coal-$version"
 orig="$out/coal_$version.orig.tar.gz"
@@ -69,7 +75,7 @@ if [ ! -f "$vendor_tarball" ]; then
     (cd "$staging/unpacked" && cargo vendor --locked --versioned-dirs "$staging/vendor" \
         > /dev/null 2> "$staging/vendor.log") || { cat "$staging/vendor.log" >&2; exit 1; }
     tar -C "$staging" --sort=name --owner=0 --group=0 --numeric-owner \
-        --mtime="@$(git -C "$repo" log -1 --format=%ct 2>/dev/null || date +%s)" \
+        --mtime="@$timestamp" \
         -cJf "$vendor_tarball" vendor
     rm -rf "${staging:?}"
 fi
@@ -127,8 +133,8 @@ with open(f"{src}/debian/copyright", "a") as f:
 EOF
 
 # 4. A changelog entry for this series. The version sorts below the Debian
-#    one (0.4.8-1), so an archive package replaces the PPA one.
-ppa_version="$version-1~ppa$revision~ubuntu$ubuntu"
+#    one, so an archive package replaces the PPA one.
+ppa_version="$debian_version~ppa$revision~ubuntu$ubuntu"
 maintainer="$(sed -n 's/^Maintainer: //p' "$src/debian/control")"
 (cd "$src" && DEBFULLNAME="${maintainer% <*}" DEBEMAIL="$(echo "$maintainer" | sed 's/.*<\(.*\)>/\1/')" \
     dch -b --newversion "$ppa_version" --distribution "$series" --force-distribution \
@@ -143,5 +149,4 @@ changes="$work/coal_${ppa_version}_source.changes"
 echo
 echo "Source package for $series: $changes"
 echo "Sign and upload it with:"
-echo "  debsign $changes"
-echo "  dput ppa:<your-launchpad-id>/coal $changes"
+echo "  packaging/ci/debian.sh upload ppa $changes"

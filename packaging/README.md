@@ -7,16 +7,22 @@ For Ubuntu 27.04 that has to happen before the Debian Import Freeze on
 already out (24.04 LTS, 26.04 LTS) never get new packages that way, so for
 them there is a PPA build.
 
-This folder holds everything for both:
+Everything lives in this repository, and GitHub does the work:
+`.github/workflows/debian.yml` builds and tests the packages on every push,
+and for a release it signs them and uploads them to the PPA and to
+mentors.debian.net. Debian doesn't need the packaging to live on Salsa; the
+`Vcs-Git` field points here.
 
 | Path | What it is |
 |---|---|
-| `debian/` | The Debian packaging. Builds only against crates already in Debian. Copy it to the Salsa repository. |
+| `debian/` | The Debian packaging. Builds only against crates already in Debian. |
 | `ppa/build-ppa-source.sh` | Makes a Launchpad PPA source package for one Ubuntu release, with the crates bundled. |
 | `ppa/rules` | The `debian/rules` the PPA build uses instead (vendored, offline, chosen toolchain). |
-| `tools/check-debian-deps.sh` | Checks whether a Debian or Ubuntu release has every crate coal needs. Run it before each release. |
+| `ci/debian.sh` | The steps the workflow runs: upstream tarball, source package, build and test, sign and upload. Each works by hand too. |
+| `tools/bump-debian-changelog.sh` | Run by cargo-release (`release.toml`): adds the `debian/changelog` entry to every release commit. |
+| `tools/check-debian-deps.sh` | Checks whether a Debian or Ubuntu release has every crate coal needs. |
 | `submission/ITP.txt` | The "Intent To Package" bug report, ready to send. |
-| `submission/RFS.txt` | The "Request For Sponsor" bug report, ready to send after uploading to mentors. |
+| `submission/RFS.txt` | The "Request For Sponsor" bug report, ready to send after the upload to mentors. |
 
 ## Status, 23 October 2026
 
@@ -26,27 +32,21 @@ Done and tested:
   needs (357 packages, including everything they depend on) is in Debian
   unstable, Ubuntu 26.10 and Ubuntu 27.04. coal builds and passes its whole
   test suite using only those crate versions.
-* **Debian package.** Built in a clean Ubuntu 27.04 chroot (which carries
-  Debian unstable's crates), with apt resolving the Build-Depends. All tests
-  pass during the build, and lintian (pedantic, Debian and Ubuntu profiles)
-  is clean apart from the ITP bug number that doesn't exist yet. The three
+* **Debian package**, built from the `coal-v1.0.0` tag against Debian
+  unstable's crates: all tests pass during the build, lintian (pedantic) is
+  clean apart from the ITP bug number that doesn't exist yet, and the three
   autopkgtests pass against the installed packages.
-* **PPA package.** Built in clean Ubuntu 24.04 and 26.04 chroots with the
-  network cut off, Rust 1.89 on 24.04. Tests and autopkgtests pass.
-
-Only you can do these. The first one blocks Debian:
-
-1. **Make `github.com/coal-config/coal` public.** Debian only takes software
-   whose source anyone can download, and `debian/watch` finds new releases
-   through the GitHub API. Right now the repository asks for credentials, and
-   the `install.sh` URL in the README returns 404.
-2. **Release coal-v0.4.8** with the upstream changes below.
-3. **Get a GPG key and accounts**: a key for signing uploads, an account on
-   salsa.debian.org and mentors.debian.net, and on Launchpad for the PPA.
+* **PPA packages** for Ubuntu 24.04, 26.04 and 26.10, built with the network
+  cut off: tests and autopkgtests pass on each.
+* **The workflow's steps**, run locally: the source job, the four test jobs,
+  and signing plus a simulated upload with a throwaway key. The real upload
+  needs your key, so the first real run is its test.
+* **Accounts:** GPG key, mentors.debian.net, Launchpad and the PPA
+  `ppa:coal-config/coal` are set up.
 
 The copyright is yours (2026, Yannick Walen), as `debian/copyright` says.
 
-## Upstream changes in this release
+## Upstream changes in 1.0.0
 
 Two of these are required for Debian; one is a bug fix; the rest are what
 Debian asks of upstream.
@@ -94,55 +94,63 @@ Debian asks of upstream.
 
 ## Step by step
 
-### 1. Release upstream
+### 1. Give the workflow your signing key
 
-Review and merge the changes. Git on Windows doesn't record executable bits
-here (`core.filemode` is off), so add the scripts with them set:
-
-```sh
-git add --chmod=+x packaging/debian/rules packaging/debian/tests/build-fixtures \
-    packaging/debian/tests/validate-example packaging/debian/tests/lsp-handshake \
-    packaging/ppa/build-ppa-source.sh packaging/tools/check-debian-deps.sh \
-    packaging/tools/debian_closure.py
-git add .gitattributes doc packaging
-```
-
-Then run your release workflow for 0.4.8. The
-tag must be `coal-v0.4.8`, which `debian/watch` looks for (it ignores the
-`ext-v*` tags of the VS Code extension).
-
-### 2. Set up the Salsa repository
-
-Create the project `debian/coal` on salsa.debian.org. Any Debian contributor
-may create projects in the `debian` group. Then, in a fresh directory:
+Export the key you registered on Launchpad and mentors.debian.net (`gpg -K`
+lists it):
 
 ```sh
-git clone https://salsa.debian.org/debian/coal.git && cd coal
-cp -r /path/to/coal/packaging/debian debian
-git add debian && git commit -m "Initial packaging"
-gbp import-orig --uscan --pristine-tar      # downloads coal-v0.4.8 from GitHub
-gbp buildpackage --git-builder=sbuild -d unstable
-git push --all && git push --tags
+gpg --armor --export-secret-keys <KEY-ID>
 ```
 
-In the project's CI/CD settings, set the configuration file to
-`debian/salsa-ci.yml`. Every push then builds the package and runs lintian,
-autopkgtest, piuparts and reproducibility checks.
+In GitHub, open the repository's *Settings > Secrets and variables >
+Actions* and add:
+
+* `DEBIAN_SIGNING_KEY`: the whole output, from `-----BEGIN` to `END...-----`.
+* `DEBIAN_SIGNING_PASSPHRASE`: its passphrase, if it has one.
+
+Anyone who can change the workflows can use that key, so keep write access
+to the repository to people you trust with it. To keep your main key off
+GitHub, give it a signing subkey and export only that
+(`gpg --armor --export-secret-subkeys <SUBKEY-ID>!`). Then send the public
+key to the keyserver again, so Launchpad and mentors see the new subkey.
+
+In the PPA's settings on Launchpad, tick the architectures you want (amd64
+is on by default; arm64 is worth adding).
+
+### 2. Publish 1.0.0 to the PPA
+
+In GitHub: *Actions > Debian and Ubuntu packages > Run workflow*, with tag
+`coal-v1.0.0` and "Where to upload" set to `ppa`. It builds, tests, signs
+and uploads the packages for 24.04, 26.04 and 26.10. Launchpad emails you
+when it accepts each one and builds them in roughly half an hour. Then
+anyone can install coal with:
+
+```sh
+sudo add-apt-repository ppa:coal-config/coal
+sudo apt install coal coal-lsp
+```
 
 ### 3. File the ITP
 
 Edit the "Why package it" paragraph in `submission/ITP.txt` into your own
 words, then send it from the address in `Maintainer:`. The bug tracker
-replies with a number. Put it in `debian/changelog` in place of `#ITPBUG`.
+replies with a number. Put it in `debian/changelog` in place of `#ITPBUG`
+(`Closes: #1234567`), then commit and push.
 
-### 4. Find a sponsor
+### 4. Upload to mentors and ask for a sponsor
 
-* Build and sign the source package (`debuild -S`, or `gbp buildpackage -S`)
-  and upload it to mentors.debian.net with `dput mentors`.
+Run the workflow again for `coal-v1.0.0`, now with "Where to upload" set to
+`mentors`. (While the changelog still says `#ITPBUG`, the workflow refuses
+to upload to mentors and says why.) Then:
+
 * Send `submission/RFS.txt`.
 * Say hello on the Rust team's list (debian-rust@lists.debian.org) or Matrix
   room (#debian-rust:matrix.org) and point them at the RFS. The Rust team
   reviews Rust packages fastest.
+* Changes the sponsor asks for go into `packaging/debian/`. Raise the
+  revision with a new changelog entry (`1.0.0-2`), push, and run the
+  workflow for `coal-v1.0.0` with `mentors` again.
 
 ### 5. NEW queue, testing, Ubuntu
 
@@ -151,26 +159,21 @@ weeks to a few months. Once accepted, coal migrates to testing after about
 five days if nothing breaks, and Ubuntu's devel series imports it
 automatically.
 
-### 6. The PPA, in the meantime
+### 6. Every later release
 
-Create a PPA called `coal` on Launchpad (and enable arm64 in its settings if
-you want it). Then, from a checkout of the release tag:
+Run *Release COAL Binaries* as you do now. cargo-release adds the
+`debian/changelog` entry to the release commit, and when the binaries are
+out the workflow builds, tests and uploads the new version to the PPA and to
+mentors. Then ask your sponsor to upload it. After a few sponsored uploads
+you can apply to become a Debian Maintainer, which lets you upload coal
+yourself; then point the workflow straight at Debian, and a release needs
+nothing more from you.
 
-```sh
-ORIG=coal-0.4.8.tar.gz packaging/ppa/build-ppa-source.sh noble
-ORIG=coal-0.4.8.tar.gz packaging/ppa/build-ppa-source.sh resolute
-debsign target/ppa/*/coal_*_source.changes
-dput ppa:<your-launchpad-id>/coal target/ppa/noble/coal_*_source.changes
-dput ppa:<your-launchpad-id>/coal target/ppa/resolute/coal_*_source.changes
-```
-
-Pass the GitHub tag tarball as `ORIG` so the PPA and Debian use the same
-upstream tarball. Without it the script uses `git archive HEAD`. Users then
-install with:
+Git on Windows doesn't record executable bits here (`core.filemode` is off),
+so a new script has to be added with the bit set:
 
 ```sh
-sudo add-apt-repository ppa:<your-launchpad-id>/coal
-sudo apt install coal coal-lsp
+git add --chmod=+x path/to/script.sh
 ```
 
 ## Before every later release
@@ -186,5 +189,10 @@ sudo apt install coal coal-lsp
   and `..._missing`, make `cargo test` fail locally ("missing
   `_expected.yaml`"). Git doesn't keep empty folders, so clean checkouts are
   fine.
-* `install_private.sh` and the README's install line assume a private
-  repository. Once the repository is public, `install_private.sh` can go.
+* `install_private.sh` was for the private repository and can go now.
+* **The old history is still public through pull request #1.** GitHub keeps
+  `refs/pull/1/head` of the merged "Feat/jinja engine" PR even after the
+  branch is gone, and `git fetch origin pull/1/head` returns 72 commits of
+  the old history. Only GitHub Support can remove it (ask them to remove the
+  pull request and run a garbage collection), short of deleting and
+  recreating the repository.
