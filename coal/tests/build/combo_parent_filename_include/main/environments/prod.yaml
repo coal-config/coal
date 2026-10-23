@@ -1,0 +1,7 @@
+servers:
+  web:
+    env: "{{ file() }}"
+    name: "{{ parent(1).key() }}"
+  api:
+    env: "{{ file() }}"
+    name: "{{ parent(1).key() }}"

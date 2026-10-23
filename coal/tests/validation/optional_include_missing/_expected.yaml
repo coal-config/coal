@@ -1,0 +1,4 @@
+environment: prod
+paths:
+  log_dir: /var/log
+transports: {}

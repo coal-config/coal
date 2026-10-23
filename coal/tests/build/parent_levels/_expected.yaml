@@ -1,0 +1,10 @@
+environments:
+  production:
+    servers:
+      web_server:
+        name: web_server
+        same_as_name: web_server
+        environment: production
+        group: servers
+        label: "servers-web_server"
+        too_far: "{{ parent(9).key() }}"

@@ -1,0 +1,11 @@
+shared:
+  name: stack
+  resources:
+    cpu: 1
+    memory: 512
+nodes:
+  cop01:
+    name: stack
+    resources:
+      cpu: 4
+      memory: 512

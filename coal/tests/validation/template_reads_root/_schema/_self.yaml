@@ -1,0 +1,7 @@
+environment: string
+service:
+  name: string
+  $template: |
+    {%- if environment == 'production' %}
+    replicas: integer
+    {%- endif %}

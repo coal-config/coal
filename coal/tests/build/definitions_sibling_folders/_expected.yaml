@@ -1,0 +1,8 @@
+east:
+  server:
+    name: east
+west:
+  server:
+    name: west
+root_site:
+  fallback: true

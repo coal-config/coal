@@ -1,0 +1,14 @@
+name: root_name
+outer:
+  name: outer_name
+  inner:
+    name: inner_name
+    from_root: "{{ name }}"
+    sibling: "{{ parent().other }}"
+    other: sibling_value
+    own_object: "{{ parent().name }}"
+    grandparent: "{{ parent(2).name }}"
+    own_key: "{{ key() }}"
+    parent_key: "{{ parent().key() }}"
+    grandparent_key: "{{ parent(2).key() }}"
+    origin: "{{ file() }}"

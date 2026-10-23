@@ -1,0 +1,6 @@
+transports:
+  $each:
+    hosts: "[string]"
+link:
+  transport: "{{ transports.keys() }}"
+  host: "{{ transports[parent().transport].hosts }}"

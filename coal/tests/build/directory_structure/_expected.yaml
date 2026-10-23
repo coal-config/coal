@@ -1,0 +1,11 @@
+environments:
+  production:
+    site: prod
+  staging:
+    site: stage
+  regions:
+    eu:
+      zone: eu-1
+node_types:
+  cop:
+    role: control

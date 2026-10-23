@@ -1,0 +1,10 @@
+# A path into the namespace may end on a plain value or on one element of a
+# list, not only on an object.
+app:
+  $include: sizes.heavy
+timeout:
+  $include: sizes.heavy.timeout
+arguments:
+  $include: sizes.heavy.arguments
+first_argument:
+  $include: sizes.heavy.arguments.0

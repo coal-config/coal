@@ -1,0 +1,9 @@
+# One missing name at the head of a chain. Every field below it is left as
+# written, and the warning names the head rather than each consequence.
+deployment:
+  name: prod
+  base_dir: "{{ deployment.root_dir }}/{{ deployment.name }}"
+paths:
+  root: "{{ deployment.base_dir }}/app"
+  log: "{{ parent().root }}/service.log"
+  archive: "{{ parent().log }}.gz"

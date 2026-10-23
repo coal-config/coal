@@ -1,0 +1,6 @@
+Version: 5
+
+Template: GitHub
+Owner: coal-config
+Project: coal
+Custom-Version: coal-v@ANY_VERSION@

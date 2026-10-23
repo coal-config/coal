@@ -1,0 +1,4 @@
+cache_size: integer
+$optional:
+  swap: bool
+  notes: string

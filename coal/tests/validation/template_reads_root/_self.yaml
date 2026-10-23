@@ -1,0 +1,4 @@
+environment: production
+service:
+  name: api
+  replicas: 3

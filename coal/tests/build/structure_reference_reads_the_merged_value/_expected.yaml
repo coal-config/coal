@@ -1,0 +1,4 @@
+banner:
+  line: level=error
+environment: production
+log_level: error

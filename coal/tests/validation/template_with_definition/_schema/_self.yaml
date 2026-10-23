@@ -1,0 +1,5 @@
+kind: string
+$template: |
+  {%- if parent().kind == 'database' %}
+  $include: database_settings
+  {%- endif %}

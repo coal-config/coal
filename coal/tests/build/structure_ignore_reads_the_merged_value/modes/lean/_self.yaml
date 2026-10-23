@@ -1,0 +1,3 @@
+flavour: trimmed
+$ignore:
+  - "{{ flavour }}_extras"

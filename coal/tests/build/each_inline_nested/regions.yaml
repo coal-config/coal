@@ -1,0 +1,11 @@
+eu:
+  $each:
+    tier: standard
+  zone_a:
+    id: a
+  zone_b:
+    id: b
+    tier: premium
+us:
+  zone_c:
+    id: c

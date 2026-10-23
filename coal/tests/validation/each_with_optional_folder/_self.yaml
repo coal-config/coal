@@ -1,0 +1,7 @@
+processes:
+  encoder:
+    executable: /bin/encoder
+    arguments:
+      - "-v"
+  decoder:
+    executable: /bin/decoder

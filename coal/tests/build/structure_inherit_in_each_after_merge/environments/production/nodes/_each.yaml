@@ -1,0 +1,1 @@
+$inherit: "node_types.{{ parent().node_type }}"

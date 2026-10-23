@@ -1,0 +1,3 @@
+default:
+  cpu: 1
+  memory: 512

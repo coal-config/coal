@@ -1,0 +1,17 @@
+Tests: build-fixtures
+Depends:
+ coal,
+ python3,
+ python3-yaml,
+Restrictions: allow-stderr
+
+Tests: validate-example
+Depends:
+ coal,
+Restrictions: allow-stderr
+
+Tests: lsp-handshake
+Depends:
+ coal-lsp,
+ python3,
+Restrictions: allow-stderr

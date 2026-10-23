@@ -1,0 +1,5 @@
+alerting: true
+environment: production
+mode: operational
+site: prod-site
+workers: 12

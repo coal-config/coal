@@ -1,0 +1,9 @@
+log_level: debug
+
+# Layered over the process definitions when staging is the environment being
+# built. Only what differs has to be said.
+processes:
+  encoder:
+    arguments:
+      - "-v"
+      - "-staging"

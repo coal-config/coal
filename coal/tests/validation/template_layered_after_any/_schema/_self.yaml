@@ -1,0 +1,7 @@
+kind: string
+$each: any
+$template: |
+  {%- if parent().kind == 'database' %}
+  db:
+    password: string
+  {%- endif %}

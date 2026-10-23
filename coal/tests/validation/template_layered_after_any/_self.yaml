@@ -1,0 +1,4 @@
+kind: database
+db:
+  password: secret
+  junk: 1

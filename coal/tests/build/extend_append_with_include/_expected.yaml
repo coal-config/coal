@@ -1,0 +1,19 @@
+main:
+  list1:
+    - a
+    - b
+  list2:
+    - c
+    - d
+  list3:
+    - e
+    - f
+  combined_list:
+    - first
+    - second
+    - a
+    - b
+    - c
+    - d
+    - e
+    - f

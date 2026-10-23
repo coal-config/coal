@@ -1,0 +1,8 @@
+environments:
+  production:
+    site: prod
+    limits:
+      max_workers: 10
+  staging:
+    staging:
+      tag: s

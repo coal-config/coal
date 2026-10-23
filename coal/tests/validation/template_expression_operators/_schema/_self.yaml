@@ -1,0 +1,10 @@
+environment: string
+type: string
+port: integer
+$template: |
+  {%- if parent().type in ['database', 'cache'] and parent().port > 1024 %}
+  credentials: string
+  {%- endif %}
+  {%- if environment == 'production' %}
+  replicas: integer
+  {%- endif %}

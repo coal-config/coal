@@ -1,0 +1,5 @@
+environment: prod
+paths:
+  $include: "{{ environment }}.paths"
+transports:
+  $include_optional: "{{ environment }}.transports"

@@ -1,0 +1,5 @@
+environment: string
+paths:
+  log_dir: string
+$optional:
+  transports: any

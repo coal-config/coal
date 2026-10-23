@@ -1,0 +1,4 @@
+primary:
+  $include: host
+replica:
+  $include: host

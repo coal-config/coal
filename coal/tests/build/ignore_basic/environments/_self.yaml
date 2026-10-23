@@ -1,0 +1,3 @@
+$ignore:
+  - old_env
+  - never_existed      # does not have to be there

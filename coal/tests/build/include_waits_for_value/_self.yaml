@@ -1,0 +1,5 @@
+# Both paths read a field that arrives from another file, so the
+# includes wait until the build knows what they name.
+$include:
+  - "environments.{{ environment }}"
+  - "modes.{{ mode }}"

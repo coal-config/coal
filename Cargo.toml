@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "coal",
+    "coal-lsp"
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.4.7"
+authors = ["Yannick Walen <y.walen@gmail.com>"]
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+repository = "https://github.com/coal-config/coal"
+homepage = "https://github.com/coal-config/coal"
+readme = "README.md"
+keywords = ["yaml", "configuration", "jinja", "schema", "compiler"]
+categories = ["command-line-utilities", "config", "development-tools"]

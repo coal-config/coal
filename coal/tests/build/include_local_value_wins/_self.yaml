@@ -1,0 +1,7 @@
+# A later path refines an earlier one, and what is written here wins
+# over both.
+app:
+  $include:
+    - templates.base
+    - templates.heavy
+  site: local

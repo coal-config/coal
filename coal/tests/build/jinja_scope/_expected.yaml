@@ -1,0 +1,14 @@
+name: root_name
+outer:
+  inner:
+    from_root: root_name
+    grandparent: outer_name
+    grandparent_key: outer
+    origin: _self
+    other: sibling_value
+    own_key: own_key
+    own_object: inner_name
+    name: inner_name
+    parent_key: inner
+    sibling: sibling_value
+  name: outer_name

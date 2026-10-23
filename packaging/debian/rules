@@ -1,0 +1,47 @@
+#!/usr/bin/make -f
+
+# coal is a two-crate Cargo workspace (coal and coal-lsp), which dh-cargo's
+# buildsystem does not handle: it builds one crate from the top-level
+# Cargo.toml. So this file drives Debian's cargo wrapper itself, the same way
+# dh-cargo does internally, and installs the two binaries explicitly. Every
+# crate comes from the librust-*-dev packages in Build-Depends.
+
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildflags.mk
+include /usr/share/rustc/architecture.mk
+export CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+export DEB_HOST_RUST_TYPE DEB_HOST_GNU_TYPE
+
+export CARGO_HOME = $(CURDIR)/debian/cargo_home
+export DEB_CARGO_CRATE = coal_$(DEB_VERSION_UPSTREAM)
+CARGO = /usr/share/cargo/bin/cargo
+RELEASE_DIR = target/$(DEB_HOST_RUST_TYPE)/release
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	# The upstream lock file pins crates.io versions; let cargo pick the
+	# versions Debian has instead.
+	rm -f Cargo.lock
+	$(CARGO) prepare-debian debian/cargo_registry --link-from-system
+
+override_dh_auto_build:
+	$(CARGO) build --release --workspace --bins
+
+override_dh_auto_test:
+	# The wrapper skips this under DEB_BUILD_OPTIONS=nocheck.
+	$(CARGO) test --release --workspace
+
+override_dh_auto_install:
+	install -D -m 0755 $(RELEASE_DIR)/coal debian/coal/usr/bin/coal
+	install -D -m 0755 $(RELEASE_DIR)/coal-lsp debian/coal-lsp/usr/bin/coal-lsp
+
+execute_before_dh_gencontrol:
+	/usr/share/cargo/bin/dh-cargo-built-using coal
+	/usr/share/cargo/bin/dh-cargo-built-using coal-lsp
+
+override_dh_auto_clean:
+	[ ! -d debian/cargo_home ] || $(CARGO) clean
+	rm -rf debian/cargo_home debian/cargo_registry target

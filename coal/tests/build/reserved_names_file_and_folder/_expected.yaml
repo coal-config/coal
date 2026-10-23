@@ -1,0 +1,5 @@
+services:
+  api:
+    name: api
+    port: 8080
+    retries: 5

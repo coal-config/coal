@@ -1,0 +1,8 @@
+alpha: 1
+beta: 2
+box:
+  size: 5
+  x: 1
+  y: 1
+picked: 1
+which: alpha

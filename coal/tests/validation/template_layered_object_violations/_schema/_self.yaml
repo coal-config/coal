@@ -1,0 +1,9 @@
+kind: string
+db:
+  host: string
+  port: integer
+$template: |
+  {%- if parent().kind == 'database' %}
+  db:
+    password: string
+  {%- endif %}

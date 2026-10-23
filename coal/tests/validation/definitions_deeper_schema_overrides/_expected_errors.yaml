@@ -1,0 +1,6 @@
+- type: InvalidType
+  path: port
+  contains: "expected integer"
+- type: InvalidType
+  path: services.api.port
+  contains: "expected bool"

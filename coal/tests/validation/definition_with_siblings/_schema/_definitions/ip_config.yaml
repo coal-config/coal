@@ -1,0 +1,3 @@
+address: string
+gateway: string
+vlan: string

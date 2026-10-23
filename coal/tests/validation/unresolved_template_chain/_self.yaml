@@ -1,0 +1,8 @@
+# 'deployment.root_dir' is never defined. Three fields cannot resolve because
+# of it, but only the one that reads it is reported.
+deployment:
+  name: prod
+  base_dir: "{{ deployment.root_dir }}/{{ deployment.name }}"
+paths:
+  root: "{{ deployment.base_dir }}/app"
+  log: "{{ parent().root }}/service.log"

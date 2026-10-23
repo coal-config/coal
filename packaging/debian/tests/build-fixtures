@@ -1,0 +1,49 @@
+#!/usr/bin/python3
+"""Run the installed coal over upstream's build fixtures.
+
+Each directory under coal/tests/build is a configuration directory with an
+_expected.yaml beside it. The upstream harness compares the parsed YAML, not
+the text, so this does the same.
+
+A case where coal says it chose the configuration itself (a structure with
+nothing selected) is skipped: there coal builds the first configuration the
+structure describes, where the harness compares the tree as written.
+"""
+import os
+import subprocess
+import sys
+
+import yaml
+
+suite = os.path.join(os.getcwd(), "coal", "tests", "build")
+cases = sorted(d for d in os.listdir(suite) if os.path.isdir(os.path.join(suite, d)))
+if not cases:
+    sys.exit("no fixtures found in " + suite)
+
+failed = []
+skipped = 0
+for case in cases:
+    directory = os.path.join(suite, case)
+    expected_path = os.path.join(directory, "_expected.yaml")
+    if not os.path.exists(expected_path):
+        skipped += 1
+        continue
+    with open(expected_path, encoding="utf-8-sig") as f:
+        expected = yaml.safe_load(f)
+    run = subprocess.run(["coal"], cwd=directory, capture_output=True, text=True)
+    if "nothing was selected" in run.stderr:
+        skipped += 1
+        print(f"skip {case} (coal chose the configuration, as documented)")
+        continue
+    try:
+        actual = yaml.safe_load(run.stdout)
+    except yaml.YAMLError as error:
+        actual = error
+    if actual != expected:
+        failed.append(case)
+        print(f"FAIL {case} (exit {run.returncode})\n{run.stderr.strip()}\n")
+    else:
+        print(f"ok   {case}")
+
+print(f"\n{len(cases) - skipped - len(failed)} passed, {len(failed)} failed, {skipped} skipped")
+sys.exit(1 if failed else 0)

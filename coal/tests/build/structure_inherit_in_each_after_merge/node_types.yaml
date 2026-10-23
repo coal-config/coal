@@ -1,0 +1,6 @@
+cop:
+  role: control
+  workers: 2
+dp:
+  role: data
+  workers: 8

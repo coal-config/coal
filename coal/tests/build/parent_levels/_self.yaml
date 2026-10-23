@@ -1,0 +1,10 @@
+environments:
+  production:
+    servers:
+      web_server:
+        name: "{{ parent(1).key() }}"
+        same_as_name: "{{ parent(1).key() }}"
+        environment: "{{ parent(3).key() }}"
+        group: "{{ parent(2).key() }}"
+        label: "{{ parent(2).key() }}-{{ parent(1).key() }}"
+        too_far: "{{ parent(9).key() }}"

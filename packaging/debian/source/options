@@ -1,0 +1,3 @@
+# debian/rules removes the upstream Cargo.lock so cargo resolves against the
+# crates Debian ships; that removal is not a change to the source.
+extend-diff-ignore = "^Cargo\.lock$"

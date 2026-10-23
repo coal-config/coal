@@ -1,0 +1,6 @@
+kind: database
+db_port: 5432
+tuning:
+  cache_size: 100
+  swap: true
+  notes: keep an eye on it

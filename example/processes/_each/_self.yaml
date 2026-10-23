@@ -1,0 +1,5 @@
+# Merged into every sibling of the folder holding this one — so into every
+# process. `parent()` is the process the copy landed in, which is how one
+# template gives each of them its own paths.
+executable: "{{ paths.process_directory }}/{{ parent().key() }}"
+configuration_directory: "{{ paths.process_configuration_directory }}/{{ parent().key() }}"

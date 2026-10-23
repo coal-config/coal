@@ -1,0 +1,5 @@
+primary:
+  address: 10.0.0.1
+replica:
+  address: 10.0.0.2
+  vlan: 7

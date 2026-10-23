@@ -1,0 +1,4 @@
+# The same line reads a real value where the node has one and falls back where
+# it does not.
+label: "{{ parent().node_value | default('none') }}"
+mirror: "{{ parent().node_value | default('none') }}"

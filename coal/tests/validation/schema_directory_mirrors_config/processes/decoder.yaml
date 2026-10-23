@@ -1,0 +1,2 @@
+executable: /bin/decoder
+threads: "many"

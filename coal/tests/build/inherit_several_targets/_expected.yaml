@@ -1,0 +1,8 @@
+defaults:
+  site: shared
+  workers: 4
+heavy:
+  workers: 12
+service:
+  site: local
+  workers: 12

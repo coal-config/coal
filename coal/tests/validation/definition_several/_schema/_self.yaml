@@ -1,0 +1,5 @@
+node_1:
+  $include:
+    - addressing
+    - naming
+  role: string

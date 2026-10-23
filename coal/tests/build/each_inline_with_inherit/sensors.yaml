@@ -1,0 +1,6 @@
+$each:
+  $inherit: "sensor_types.{{ parent().sensor_type }}"
+probe_a:
+  sensor_type: thermal
+probe_b:
+  sensor_type: pressure

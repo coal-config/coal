@@ -1,0 +1,91 @@
+{
+  "name": "coal",
+  "displayName": "COAL",
+  "description": "Language support for COAL configuration projects: diagnostics, hover, and completion powered by the COAL language server.",
+  "version": "0.2.0",
+  "engines": {
+    "vscode": "^1.110.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:yaml",
+    "onLanguage:coal",
+    "workspaceContains:**/.coal",
+    "workspaceContains:**/_structure.yaml",
+    "workspaceContains:**/_schema/**"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "coal",
+        "aliases": [
+          "COAL",
+          "coal"
+        ],
+        "extensions": [
+          ".coal",
+          ".schema"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "coal.restartLanguageServer",
+        "category": "COAL",
+        "title": "Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "COAL",
+      "properties": {
+        "coal.languageServerPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the coal-lsp executable. Supports '~' for the home directory. If left empty, the extension looks for 'coal-lsp' on your system PATH."
+        },
+        "coalLanguageServer.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the COAL language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.110.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3",
+    "ts-loader": "^9.5.4",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "webpack": "^5.105.3",
+    "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

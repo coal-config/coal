@@ -1,0 +1,7 @@
+deployment:
+  base_dir: "{{ deployment.root_dir }}/{{ deployment.name }}"
+  name: prod
+paths:
+  archive: "{{ parent().log }}.gz"
+  log: "{{ parent().root }}/service.log"
+  root: "{{ deployment.base_dir }}/app"

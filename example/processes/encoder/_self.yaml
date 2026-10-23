@@ -1,0 +1,3 @@
+# Fields of `processes.encoder` itself. Everything else it needs comes from
+# the _each template beside it.
+$include: argument_sets.verbose

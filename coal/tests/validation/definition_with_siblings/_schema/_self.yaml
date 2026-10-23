@@ -1,0 +1,3 @@
+node_1:
+  $include: ip_config
+  vlan: integer     # beats the definition

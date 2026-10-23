@@ -1,0 +1,11 @@
+app:
+  database:
+    retries: 3
+  title: demo
+services:
+  api:
+    name: api
+    port: 8080
+  web:
+    name: web
+    port: 9000

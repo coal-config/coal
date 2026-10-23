@@ -1,0 +1,6 @@
+- type: MissingMandatoryField
+  path: holder.port
+  contains: "/_schema/holder.yaml] value: None"
+- type: MissingMandatoryField
+  path: spoken_for.port
+  contains: "/_schema/spoken_for/_self.yaml] value: None"

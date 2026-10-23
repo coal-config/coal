@@ -1,0 +1,6 @@
+deployment:
+  name: string
+  base_dir: string
+paths:
+  root: string
+  log: string

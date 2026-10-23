@@ -1,0 +1,104 @@
+Source: coal
+Section: utils
+Maintainer: Yannick Walen <y.walen@gmail.com>
+Build-Depends:
+ debhelper-compat (= 14),
+ dh-cargo (>= 31),
+ cargo:native (>= 1.89),
+ rustc:native (>= 1.89),
+ libstd-rust-dev,
+ python3:native,
+ librust-clap-dev (<< 5-~~),
+ librust-clap-dev (>= 4.6.0-~~),
+ librust-clap+default-dev (<< 5-~~),
+ librust-clap+default-dev (>= 4.6.0-~~),
+ librust-clap+derive-dev (<< 5-~~),
+ librust-clap+derive-dev (>= 4.6.0-~~),
+ librust-marked-yaml-dev (<< 0.9-~~),
+ librust-marked-yaml-dev (>= 0.8.0-~~),
+ librust-marked-yaml+default-dev (<< 0.9-~~),
+ librust-marked-yaml+default-dev (>= 0.8.0-~~),
+ librust-minijinja-dev (<< 3-~~),
+ librust-minijinja-dev (>= 2.19-~~),
+ librust-minijinja+default-dev (<< 3-~~),
+ librust-minijinja+default-dev (>= 2.19-~~),
+ librust-minijinja+loop-controls-dev (<< 3-~~),
+ librust-minijinja+loop-controls-dev (>= 2.19-~~),
+ librust-regex-dev (<< 2-~~),
+ librust-regex-dev (>= 1.12.3-~~),
+ librust-regex+default-dev (<< 2-~~),
+ librust-regex+default-dev (>= 1.12.3-~~),
+ librust-serde-dev (<< 2-~~),
+ librust-serde-dev (>= 1.0.228-~~),
+ librust-serde+default-dev (<< 2-~~),
+ librust-serde+default-dev (>= 1.0.228-~~),
+ librust-serde+derive-dev (<< 2-~~),
+ librust-serde+derive-dev (>= 1.0.228-~~),
+ librust-serde-yaml-dev (<< 0.10-~~),
+ librust-serde-yaml-dev (>= 0.9.34-~~),
+ librust-serde-yaml+default-dev (<< 0.10-~~),
+ librust-serde-yaml+default-dev (>= 0.9.34-~~),
+ librust-tokio-dev (<< 2-~~),
+ librust-tokio-dev (>= 1-~~),
+ librust-tokio+default-dev (<< 2-~~),
+ librust-tokio+default-dev (>= 1-~~),
+ librust-tokio+full-dev (<< 2-~~),
+ librust-tokio+full-dev (>= 1-~~),
+ librust-tower-lsp-server-dev (<< 0.24-~~),
+ librust-tower-lsp-server-dev (>= 0.23-~~),
+ librust-tower-lsp-server+default-dev (<< 0.24-~~),
+ librust-tower-lsp-server+default-dev (>= 0.23-~~),
+Standards-Version: 4.7.4
+Homepage: https://github.com/coal-config/coal
+Vcs-Git: https://salsa.debian.org/debian/coal.git
+Vcs-Browser: https://salsa.debian.org/debian/coal
+
+Package: coal
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Suggests:
+ coal-lsp,
+Static-Built-Using:
+ ${cargo:Static-Built-Using},
+X-Cargo-Built-Using:
+ ${cargo:X-Cargo-Built-Using},
+Built-Using:
+ ${cargo:Built-Using},
+Description: compiler for YAML configurations split over a directory tree
+ COAL (Coalescence) turns a directory of small YAML files into one
+ validated YAML configuration. The folders are the structure: a folder is
+ a level of nesting and a file is a field, so nothing has to declare the
+ layout.
+ .
+ Shared settings are written once and applied to every sibling, reusable
+ shapes can be included by name, and any value can be a Jinja template
+ that reads any other part of the configuration. A YAML schema, which may
+ itself use Jinja, checks the result against the configuration's own data.
+ One directory can describe many configurations (for example one per
+ environment and node) and coal builds or validates each of them.
+
+Package: coal-lsp
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Enhances:
+ coal,
+Static-Built-Using:
+ ${cargo:Static-Built-Using},
+X-Cargo-Built-Using:
+ ${cargo:X-Cargo-Built-Using},
+Built-Using:
+ ${cargo:Built-Using},
+Description: language server for COAL YAML configurations
+ COAL (Coalescence) turns a directory of small YAML files into one
+ validated YAML configuration.
+ .
+ This package contains coal-lsp, a Language Server Protocol server that
+ lets editors report the same findings as "coal --validate", on the line
+ where each mistake is written, and offers hover information and
+ completion for Jinja names, includable definitions and the values a
+ schema allows. It finds the COAL projects in the editor's workspace by
+ itself.

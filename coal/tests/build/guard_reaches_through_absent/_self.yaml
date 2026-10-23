@@ -1,0 +1,8 @@
+# A fallback means the same thing at any depth: `telemetry` is the part that is
+# missing here, not `port`, and the guard still gets its turn.
+node:
+  name: cop01
+  fallback: "{{ node.telemetry.port | default(9000) }}"
+  asked: "{{ node.telemetry.port is defined }}"
+  fetched: "{{ node.get('telemetry', {}).get('port', 'none') }}"
+  one_level: "{{ node.telemetry | default('no telemetry') }}"

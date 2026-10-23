@@ -1,0 +1,5 @@
+$each:
+  from_inline: true
+  shared: inline
+api:
+  role: front

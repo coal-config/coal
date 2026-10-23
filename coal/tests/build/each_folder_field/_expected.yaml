@@ -1,0 +1,5 @@
+services:
+  api:
+    port: 9000
+    limits:
+      memory: 512

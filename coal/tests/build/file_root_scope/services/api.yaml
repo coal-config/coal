@@ -1,0 +1,7 @@
+log_dir: /srv/api
+# The file has log_dir, so this reads the file.
+own: "{{ log_dir }}"
+# The file has no paths, so this falls back to the root.
+shared: "{{ paths.log_dir }}"
+# root() skips the file outright.
+forced: "{{ root().log_dir }}"

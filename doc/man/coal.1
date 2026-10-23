@@ -1,0 +1,153 @@
+.TH COAL 1 "October 2026" "coal 0.4.8" "User Commands"
+.SH NAME
+coal \- compile a directory of YAML files into one validated YAML configuration
+.SH SYNOPSIS
+.B coal
+.RB [ \-v ]
+.RB [ \-s
+.IR [NAME=]VALUE ]...
+.RB [ \-p
+.IR PATH=VALUE ]...
+.RI [ PRINT_PATH ]
+.br
+.B coal
+.B \-a
+.I ANALYZE_PATH
+.br
+.B coal
+.RB { \-h | \-V }
+.SH DESCRIPTION
+.B coal
+(Coalescence) reads the directory it is run in and builds one YAML
+configuration out of it.
+The directory is the configuration: a folder is a level of nesting and a
+file is a field, so
+.I services/api.yaml
+becomes
+.BR services.api .
+Shared settings are written once in
+.I _each
+files, reusable shapes live in
+.I _definitions
+directories, and any value may be a Jinja template that reads any other
+part of the configuration.
+.PP
+Directives starting with
+.B $
+(such as
+.BR $include ,
+.BR $include_optional ,
+.BR $inherit ,
+.BR $ignore ,
+.B $append
+and
+.BR $extend )
+are expanded while the tree is built.
+A schema in
+.I _schema/
+describes what is valid, and may itself use Jinja to take allowed values
+from the configuration.
+.PP
+When the directory holds a
+.IR _structure.yaml ,
+it describes several configurations at once (for example one per
+environment and node); the
+.B \-\-select
+option picks one of them.
+.PP
+The compiled configuration is written to standard output.
+Diagnostics are written to standard error.
+.SH OPTIONS
+.TP
+.BR \-v ", " \-\-validate
+Check the configuration against the schema instead of printing it.
+With a
+.I _structure.yaml
+and no selection, every configuration the structure describes is built
+and checked, and each finding is reported once, in the file and on the
+line where it is written.
+.TP
+.BR \-s ", " \-\-select " " \fI[NAME=]VALUE\fR
+Build one configuration out of the many the tree describes, as declared
+in
+.IR _structure.yaml .
+Give the option once per selector.
+The value is any right\-aligned part of the selector's path, so
+.B "\-s environments.production.nodes.cop01"
+can be used when the short name
+.B cop01
+would match more than one place.
+.TP
+.BR \-p ", " \-\-param " " \fIPATH=VALUE\fR
+Pin a value at a dotted path that the configuration cannot override.
+The value is seeded into the tree before the build, so it can drive
+includes, layers and selections.
+May be repeated.
+.TP
+.BR \-a ", " \-\-analyze " " \fIANALYZE_PATH\fR
+Dump the internal node properties of one field (key, value, resolved
+schema type, origin file, allowed values and source span), for example
+.BR "coal \-a processes.cms" .
+.TP
+.I PRINT_PATH
+Print only this part of the compiled configuration, for example
+.BR "coal environments.production" .
+.TP
+.BR \-h ", " \-\-help
+Print help and exit.
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.SH FILES
+.TP
+.I _schema/
+Schema definitions the configuration is validated against.
+.TP
+.I _structure.yaml
+Declares the selectors and layers that turn one tree into many
+configurations.
+.TP
+.I _definitions/
+Named shapes that
+.B $include
+can splice into a field.
+.TP
+.IR _each.yaml ", " _each/
+Settings applied to every sibling at that level.
+.TP
+.I _self.yaml
+The fields of the folder it sits in.
+.SH EXIT STATUS
+.B coal
+exits with status 0 when the build (or validation) succeeds, and with a
+non\-zero status when the configuration cannot be built or validation
+reports problems.
+.SH EXAMPLES
+Build the configuration in the current directory:
+.PP
+.RS
+.B coal > config.yaml
+.RE
+.PP
+Check every configuration a
+.I _structure.yaml
+describes:
+.PP
+.RS
+.B coal \-\-validate
+.RE
+.PP
+Build the staging configuration for node cop01 and print only its
+processes:
+.PP
+.RS
+.B coal \-s staging \-s cop01 processes
+.RE
+.SH SEE ALSO
+.BR coal\-lsp (1)
+.PP
+The full language reference is in
+.I /usr/share/doc/coal/README.md.gz
+and at
+.UR https://github.com/coal\-config/coal
+.UE .

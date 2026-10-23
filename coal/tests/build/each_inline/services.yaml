@@ -1,0 +1,8 @@
+$each:
+  port: 8080
+  name: "{{ parent().key() }}"
+api:
+  role: front
+web:
+  role: back
+  port: 9000

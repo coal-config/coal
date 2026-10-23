@@ -1,0 +1,4 @@
+regions:
+  - eu
+  - us
+eu_endpoint: https://eu.example

@@ -1,0 +1,29 @@
+nodes:
+  cop01:
+    node_name: cop01
+    components:
+      cmsserver: {}
+    alarms:
+      cms_status:
+        alarm_id: 2
+        level: critical
+        title: CMSClient cop01
+        peers:
+          - cop01
+      disk_status:
+        alarm_id: 1
+        level: critical
+        title: cop01 disk
+  cop02:
+    node_name: cop02
+    alarms:
+      cms_status:
+        alarm_id: 4
+        level: critical
+        title: CMSClient cop02
+        peers:
+          - cop01
+      disk_status:
+        alarm_id: 3
+        level: critical
+        title: cop02 disk

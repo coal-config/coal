@@ -1,0 +1,4 @@
+handlers:
+  alarm: {}
+  status: {}
+known_handlers: "alarm,status"

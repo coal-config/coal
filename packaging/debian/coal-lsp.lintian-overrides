@@ -1,0 +1,4 @@
+# serde_yaml is built on unsafe-libyaml, a Rust translation of libyaml that
+# Debian ships as its own source package (rust-unsafe-libyaml). Like every
+# crate it is linked statically, and Static-Built-Using records it.
+embedded-library libyaml [usr/bin/coal-lsp]

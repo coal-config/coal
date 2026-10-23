@@ -1,0 +1,20 @@
+# Mappings that still hold an unprocessed directive at validation
+# time — a half-typed key while the language server rebuilds on every
+# keystroke. Nothing consumes it, so it survives every expansion phase
+# and must still never be offered as an allowed value.
+node_types:
+  dp:
+    hardware: desktop
+  cop:
+    hardware: server
+  $inheri:
+    - dp
+hardware_kinds:
+  - desktop
+  - server
+  - $inheri:
+      - x
+nodes:
+  n1:
+    type: dp
+    hardware: desktop

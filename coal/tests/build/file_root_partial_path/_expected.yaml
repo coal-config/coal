@@ -1,0 +1,9 @@
+paths:
+  data_dir: /var/data
+  log_dir: /var/log
+services:
+  api:
+    paths:
+      socket: /run/api.sock
+    log: /var/log
+    socket: /run/api.sock

@@ -1,0 +1,12 @@
+sensor_types:
+  pressure:
+    unit: bar
+  thermal:
+    unit: celsius
+sensors:
+  probe_a:
+    sensor_type: thermal
+    unit: celsius
+  probe_b:
+    sensor_type: pressure
+    unit: bar

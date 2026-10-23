@@ -1,0 +1,4 @@
+selectors:
+  - "nodes.{node}"
+layers:
+  - defaults

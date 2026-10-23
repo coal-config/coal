@@ -1,0 +1,8 @@
+which: alpha
+alpha: 1
+beta: 2
+picked: "{{ parent(1)[which] }}"
+box:
+  x: 1
+  y: "{{ parent().x }}"
+  size: "{{ parent(2) | length }}"

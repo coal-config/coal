@@ -1,0 +1,6 @@
+retries: 3
+timeout: 10
+logging:
+  level: info
+  format: json
+arguments: ["-a", "-b"]

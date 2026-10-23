@@ -1,0 +1,3 @@
+sensor_type: pressure
+# What the sensor says for itself still wins.
+poll_interval: 5

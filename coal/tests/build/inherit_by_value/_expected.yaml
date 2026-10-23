@@ -1,0 +1,16 @@
+sensor_types:
+  pressure:
+    poll_interval: 10
+    unit: bar
+  thermal:
+    poll_interval: 30
+    unit: celsius
+sensors:
+  probe_a:
+    poll_interval: 30
+    sensor_type: thermal
+    unit: celsius
+  probe_b:
+    poll_interval: 5
+    sensor_type: pressure
+    unit: bar

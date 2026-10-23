@@ -1,0 +1,12 @@
+sensor_types:
+  analog:
+    signal: analog
+    unit: volt
+  thermal:
+    signal: analog
+    unit: celsius
+sensors:
+  probe:
+    sensor_type: thermal
+    signal: analog
+    unit: celsius

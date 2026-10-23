@@ -1,0 +1,12 @@
+# A field the enclosing object does not have, guarded by a fallback. Several
+# siblings may do it at once: reading one field of the parent must never mean
+# waiting for the whole parent, or each of these would be waiting for the
+# others and the pair would be reported as a loop.
+nodes:
+  cop01:
+    node_type: control
+    label: "{{ parent().node_value | default('') }}"
+    site: "{{ parent().site_name | default('unknown') }}"
+    known: "{{ parent().node_type | default('none') }}"
+    asked: "{{ parent().node_value is defined }}"
+    fetched: "{{ parent().get('node_value', 'absent') }}"

@@ -1,0 +1,5 @@
+services:
+  api:
+    port: 8080
+  web:
+    port: "eighty"

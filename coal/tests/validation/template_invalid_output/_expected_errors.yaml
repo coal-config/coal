@@ -1,0 +1,3 @@
+- type: SchemaError
+  path: ROOT
+  contains: "produced something other than a mapping"

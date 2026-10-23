@@ -1,0 +1,12 @@
+defaults:
+  nested:
+    a: 1
+    b: 2
+  retries: 3
+  timeout: 30
+service:
+  nested:
+    a: 1
+    b: 20
+  retries: 3
+  timeout: 60

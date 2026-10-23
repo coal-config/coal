@@ -1,0 +1,5 @@
+main:
+  existing:
+    field: value
+  optional_part:
+    $include_optional: nowhere

@@ -1,0 +1,12 @@
+# `source.b` is mandatory and missing, so the schema engine leaves a
+# placeholder behind. A template must not see it: the configuration
+# does not actually have that key.
+source:
+  a: integer
+  b:
+    x: integer
+target:
+  $template: |
+    {%- for name in source.keys() %}
+    {{ name }}: any
+    {%- endfor %}

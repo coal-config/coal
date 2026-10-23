@@ -1,0 +1,11 @@
+selectors:
+  - "environments.{environment}.nodes.{node}"
+layers:
+  - "node_types.{{ node.node_type }}"
+  - "environments.{{ environment }}"
+  - "{node}"
+  - "environments.{{ environment }}.modes.{{ node.mode }}"
+drop:
+  - environments
+  - nodes
+  - modes

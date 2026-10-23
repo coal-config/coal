@@ -1,0 +1,3 @@
+# Debian packaging and man pages keep LF line endings, also in Windows checkouts.
+packaging/** text eol=lf
+doc/man/** text eol=lf

@@ -1,0 +1,9 @@
+log_dir: /global
+paths:
+  log_dir: /var/log
+services:
+  api:
+    log_dir: /srv/api
+    own: /srv/api
+    shared: /var/log
+    forced: /global

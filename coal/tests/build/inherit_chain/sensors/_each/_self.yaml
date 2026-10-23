@@ -1,0 +1,1 @@
+$inherit: "sensor_types.{{ parent().sensor_type }}"

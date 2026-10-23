@@ -1,0 +1,14 @@
+# One template, written once, read from many places. Validation reuses what a
+# template already worked out, so this checks every place still gets the
+# answer for its own scope: the same text must not borrow a sibling's result.
+transports:
+  $each:
+    hosts: "[string]"
+links:
+  $each:
+    transport: "{{ transports.keys() }}"
+    host: "{{ transports[parent().transport].hosts }}"
+    $template: |
+      {% if parent().transport == 'udp' %}
+      ttl: integer
+      {% endif %}

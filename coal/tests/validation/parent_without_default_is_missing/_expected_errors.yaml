@@ -1,0 +1,3 @@
+- type: UnresolvedTemplate
+  path: node.bare
+  contains: "it reads 'node.node_value', which does not exist"

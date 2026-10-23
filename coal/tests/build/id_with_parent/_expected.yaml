@@ -1,0 +1,5 @@
+alpha_db: 1
+beta_db: 1
+grandparents:
+  east: 1
+  west: 2

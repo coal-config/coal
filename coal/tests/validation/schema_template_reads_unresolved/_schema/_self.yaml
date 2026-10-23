@@ -1,0 +1,6 @@
+kind: any
+chosen: "{{ kind }}"
+$template: |
+  {%- if kind %}
+  only_when_kind_set: string
+  {%- endif %}

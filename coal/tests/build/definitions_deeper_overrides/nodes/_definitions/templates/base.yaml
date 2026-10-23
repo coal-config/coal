@@ -1,0 +1,6 @@
+# Overrides the root definition inside nodes/: objects merge field by field,
+# a plain value or a list replaces what the root said.
+retries: 5
+logging:
+  level: debug
+arguments: ["-c"]

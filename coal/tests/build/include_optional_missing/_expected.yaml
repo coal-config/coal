@@ -1,0 +1,4 @@
+main:
+  existing:
+    field: value
+  optional_part: {}

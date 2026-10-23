@@ -1,0 +1,3 @@
+mode: production
+staging_only:
+  y: 2

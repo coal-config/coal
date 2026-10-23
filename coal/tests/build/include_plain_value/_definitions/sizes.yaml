@@ -1,0 +1,6 @@
+heavy:
+  workers: 12
+  timeout: 30
+  arguments:
+    - "-v"
+    - "-production"

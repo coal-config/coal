@@ -1,0 +1,4 @@
+cop:
+  role: control
+dp:
+  role: data

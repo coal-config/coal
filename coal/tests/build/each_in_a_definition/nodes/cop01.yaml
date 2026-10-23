@@ -1,0 +1,3 @@
+node_name: cop01
+components:
+  cmsserver: {}

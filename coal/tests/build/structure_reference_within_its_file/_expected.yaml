@@ -1,0 +1,5 @@
+base: /root-base
+environment: production
+paths:
+  base: /srv
+  log: /srv/log

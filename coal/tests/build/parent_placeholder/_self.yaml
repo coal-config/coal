@@ -1,0 +1,8 @@
+main:
+  servers:
+    web_server:
+      name: "{{ parent(1).key() }}"
+      type: web
+    db_server:
+      name: "{{ parent(1).key() }}"
+      type: database

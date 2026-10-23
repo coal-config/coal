@@ -1,0 +1,7 @@
+﻿# The file opens with a UTF-8 byte order mark, which an editor on Windows may
+# write. It must not become part of the first key: the field is `handlers`,
+# not `\ufeffhandlers`, and a template that reads it must find it.
+handlers:
+  alarm: {}
+  status: {}
+known_handlers: "{{ handlers.keys() | join(',') }}"

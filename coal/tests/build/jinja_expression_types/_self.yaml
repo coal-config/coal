@@ -1,0 +1,12 @@
+regions:
+  - eu
+  - us
+limits:
+  small: 1
+  large: 10
+region_names: "{{ regions }}"
+region_count: "{{ regions | length }}"
+largest: "{{ limits.large }}"
+has_eu: "{{ 'eu' in regions }}"
+sizes: "{{ limits.keys() | list }}"
+label: "region {{ regions[0] }} of {{ regions | length }}"

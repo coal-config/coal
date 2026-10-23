@@ -1,0 +1,5 @@
+app:
+  base:
+    retries: 3
+  extra:
+    verbose: true

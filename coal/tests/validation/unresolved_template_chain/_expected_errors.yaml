@@ -1,0 +1,3 @@
+- type: UnresolvedTemplate
+  path: deployment.base_dir
+  contains: "it reads 'deployment.root_dir', which does not exist"

@@ -1,0 +1,9 @@
+# `nodes.values()` calls a method on the container this field is written
+# inside. It reads the container, not a field called `values`, and it has to
+# wait for the siblings it is about — including the label each of them is still
+# working out.
+peers: |
+  {%- for peer in nodes.values() %}
+  - {{ peer.label }}
+  {%- endfor %}
+label: "node-{{ parent().key() }}"

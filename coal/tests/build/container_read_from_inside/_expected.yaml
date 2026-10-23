@@ -1,0 +1,13 @@
+nodes:
+  cop01:
+    rank: 1
+    label: node-cop01
+    peers:
+      - node-cop01
+      - node-cop02
+  cop02:
+    rank: 2
+    label: node-cop02
+    peers:
+      - node-cop01
+      - node-cop02

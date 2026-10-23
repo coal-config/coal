@@ -1,0 +1,4 @@
+$inherit: defaults
+timeout: 60
+nested:
+  b: 20

@@ -1,0 +1,7 @@
+services:
+  api:
+    from_each_file: true
+    from_each_folder: true
+    from_inline: true
+    role: front
+    shared: each-folder

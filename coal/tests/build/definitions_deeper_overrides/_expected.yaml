@@ -1,0 +1,23 @@
+app:
+  retries: 3
+  timeout: 10
+  logging:
+    level: info
+    format: json
+  arguments: ["-a", "-b"]
+nodes:
+  cop01:
+    retries: 5
+    timeout: 10
+    logging:
+      level: debug
+      format: json
+    arguments: ["-c"]
+  deep:
+    cop02:
+      retries: 5
+      timeout: 20
+      logging:
+        level: debug
+        format: json
+      arguments: ["-c"]

@@ -1,0 +1,2 @@
+executable: /bin/encoder
+threads: 4

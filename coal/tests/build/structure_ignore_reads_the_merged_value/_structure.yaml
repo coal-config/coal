@@ -1,0 +1,4 @@
+selectors:
+  - "modes.{mode}"
+drop:
+  - modes

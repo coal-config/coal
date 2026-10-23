@@ -1,0 +1,8 @@
+nodes:
+  cop01:
+    node_type: control
+    label: ""
+    site: unknown
+    known: control
+    asked: false
+    fetched: absent

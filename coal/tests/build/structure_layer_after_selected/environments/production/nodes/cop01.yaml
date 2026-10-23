@@ -1,0 +1,5 @@
+node_type: cop
+mode: operational
+hostname: cop01.prod
+# Overruled by the mode, which is layered on top of this node.
+workers: 3

@@ -1,0 +1,6 @@
+node:
+  name: cop01
+  fallback: 9000
+  asked: false
+  fetched: none
+  one_level: no telemetry

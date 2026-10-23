@@ -1,0 +1,5 @@
+type: string
+$template: |
+  {%- if parent().type == 'database' %}
+  db_port: integer
+  {%- endif %}

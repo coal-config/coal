@@ -1,0 +1,4 @@
+port:
+  $include: port_number
+mode:
+  $include: speed

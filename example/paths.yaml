@@ -1,0 +1,7 @@
+configuration_directory: /configuration
+process_directory: /processes
+
+# Written in paths.yaml, so a bare name is this file's own top level first.
+# There is no need to say `paths.` to reach the line above.
+process_configuration_directory: "{{ configuration_directory }}/processes"
+users_directory: "{{ configuration_directory }}/users"

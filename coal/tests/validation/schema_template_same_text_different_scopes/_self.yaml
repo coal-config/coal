@@ -1,0 +1,20 @@
+transports:
+  tcp:
+    hosts:
+      - alpha
+      - beta
+  udp:
+    hosts:
+      - gamma
+links:
+  first:
+    transport: tcp
+    host: alpha
+  second:
+    transport: udp
+    host: alpha
+    ttl: 3
+  third:
+    transport: tcp
+    host: gamma
+    ttl: 3

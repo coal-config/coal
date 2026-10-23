@@ -1,0 +1,5 @@
+literal: "{% raw %}{{ placeholder }}{% endraw %}"
+sentence: "{% raw %}hello {{ x }} world{% endraw %}"
+reader: "{{ literal }}"
+tail: "prefix-{{ literal }}"
+collected: "{{ [literal, sentence] }}"

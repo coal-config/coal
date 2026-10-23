@@ -1,0 +1,6 @@
+analog:
+  signal: analog
+  unit: volt
+thermal:
+  $inherit: sensor_types.analog
+  unit: celsius

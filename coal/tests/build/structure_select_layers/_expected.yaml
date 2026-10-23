@@ -1,0 +1,9 @@
+hostname: cop01.prod
+node: cop01
+node_type: cop
+node_types:
+  cop:
+    role: control
+region: eu
+role: control
+workers: 4

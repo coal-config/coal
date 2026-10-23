@@ -1,0 +1,12 @@
+main:
+  source1:
+    - a
+    - b
+  source2:
+    - c
+    - d
+  combined:
+    - a
+    - b
+    - c
+    - d

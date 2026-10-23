@@ -1,0 +1,2 @@
+from_each_file: true
+shared: each-file

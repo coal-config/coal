@@ -1,0 +1,5 @@
+regions: "[string]"
+$template: |
+  {%- for region in regions %}
+  {{ region }}_endpoint: string
+  {%- endfor %}

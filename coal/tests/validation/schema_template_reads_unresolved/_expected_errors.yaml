@@ -1,0 +1,9 @@
+- type: UnresolvedTemplate
+  path: kind
+  contains: "it reads 'nowhere', which does not exist"
+- type: SchemaError
+  path: ROOT
+  contains: "which is itself unresolved"
+- type: SchemaError
+  path: chosen
+  contains: "which is itself unresolved"

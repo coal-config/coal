@@ -1,0 +1,63 @@
+#!/usr/bin/make -f
+
+# debian/rules for PPA builds on Ubuntu releases whose archive lacks the
+# crates coal needs (24.04 LTS, 26.04 LTS). build-ppa-source.sh puts this
+# file in place of the Debian one. Every crate comes from vendor/ (a second
+# upstream tarball, coal_<version>.orig-vendor.tar.xz), pinned by the upstream
+# Cargo.lock, and the build never touches the network.
+#
+# RUST_BIN names the toolchain: /usr/bin, or a versioned one such as
+# /usr/lib/rust-1.89/bin on releases whose default rustc is too old.
+
+include /usr/share/dpkg/pkg-info.mk
+include /usr/share/dpkg/architecture.mk
+include /usr/share/dpkg/buildflags.mk
+
+RUST_BIN = @RUST_BIN@
+export PATH := $(RUST_BIN):$(PATH)
+export CARGO_HOME = $(CURDIR)/debian/cargo_home
+export CARGO_TARGET_DIR = $(CURDIR)/target
+export CARGO_PROFILE_RELEASE_DEBUG = true
+export CARGO_PROFILE_RELEASE_STRIP = false
+export RUSTFLAGS = --cap-lints warn $(foreach flag,$(LDFLAGS),-C link-arg=$(flag))
+
+PARALLEL = $(patsubst parallel=%,-j%,$(filter parallel=%,$(DEB_BUILD_OPTIONS)))
+CARGO_FLAGS = --release --workspace --offline --locked $(PARALLEL)
+
+%:
+	dh $@
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	printf '[source.crates-io]\nreplace-with = "vendored"\n\n[source.vendored]\ndirectory = "%s"\n' \
+		"$(CURDIR)/vendor" > $(CARGO_HOME)/config.toml
+	cargo --version
+	rustc --version
+
+override_dh_auto_build:
+	cargo build $(CARGO_FLAGS) --bins
+
+override_dh_auto_test:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	cargo test $(CARGO_FLAGS)
+endif
+
+override_dh_auto_install:
+	install -D -m 0755 target/release/coal debian/coal/usr/bin/coal
+	install -D -m 0755 target/release/coal-lsp debian/coal-lsp/usr/bin/coal-lsp
+
+execute_before_dh_gencontrol:
+	# The crates are vendored, not Debian packages, so Built-Using stays
+	# empty; ship the lock file so the exact crate versions are on record.
+	for p in coal coal-lsp; do \
+		install -D -m 0644 Cargo.lock debian/$$p/usr/share/doc/$$p/Cargo.lock; \
+		printf 'cargo:Built-Using=\ncargo:X-Cargo-Built-Using=\ncargo:Static-Built-Using=\n' >> debian/$$p.substvars; \
+	done
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo_home
+
+override_dh_clean:
+	# dh_clean deletes *.orig files, and every vendored crate has a
+	# Cargo.toml.orig that its checksum covers.
+	dh_clean -XCargo.toml.orig

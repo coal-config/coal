@@ -1,0 +1,4 @@
+node_1:
+  address: 10.0.0.1
+  gateway: 10.0.0.254
+  vlan: 12

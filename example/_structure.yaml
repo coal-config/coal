@@ -1,0 +1,9 @@
+# One environment is built at a time. `coal -s staging` merges everything
+# under environments.staging onto the root and drops the scaffolding, so what
+# comes out is the configuration for staging and nothing else.
+#
+# With no -s given the tree compiles as written, environments and all.
+selectors:
+  - "environments.{environment}"
+drop:
+  - environments

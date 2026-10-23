@@ -1,0 +1,80 @@
+#!/usr/bin/python3
+"""Start the installed coal-lsp, open a file with a mistake in it, and check
+that the server publishes a diagnostic for it, then shuts down cleanly."""
+import json
+import os
+import select
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+
+work = os.environ.get("AUTOPKGTEST_TMP") or tempfile.mkdtemp()
+root = os.path.join(work, "lsp-example")
+shutil.rmtree(root, ignore_errors=True)
+shutil.copytree("example", root)
+path = os.path.join(root, "users", "admin.yaml")
+text = open(path, encoding="utf-8").read() + "\nthis_key_is_not_in_the_schema: 1\n"
+
+server = subprocess.Popen(["coal-lsp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+buffer = b""
+
+
+def send(message):
+    body = json.dumps(message).encode()
+    server.stdin.write(b"Content-Length: %d\r\n\r\n" % len(body) + body)
+    server.stdin.flush()
+
+
+def receive(seconds):
+    global buffer
+    messages, deadline = [], time.time() + seconds
+    while time.time() < deadline:
+        if select.select([server.stdout], [], [], 0.1)[0]:
+            chunk = os.read(server.stdout.fileno(), 65536)
+            if not chunk:
+                break
+            buffer += chunk
+        while b"\r\n\r\n" in buffer:
+            header, rest = buffer.split(b"\r\n\r\n", 1)
+            length = next(int(line.split(b":")[1]) for line in header.split(b"\r\n")
+                          if line.lower().startswith(b"content-length"))
+            if len(rest) < length:
+                break
+            messages.append(json.loads(rest[:length]))
+            buffer = rest[length:]
+    return messages
+
+
+uri = "file://" + path
+send({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+    "processId": None, "capabilities": {},
+    "workspaceFolders": [{"uri": "file://" + root, "name": "example"}]}})
+replies = receive(5)
+if not any(m.get("id") == 1 and "capabilities" in m.get("result", {}) for m in replies):
+    sys.exit("no initialize reply: %r" % replies)
+send({"jsonrpc": "2.0", "method": "initialized", "params": {}})
+send({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {
+    "uri": uri, "languageId": "yaml", "version": 1, "text": text}}})
+
+found = False
+deadline = time.time() + 30
+while not found and time.time() < deadline:
+    for m in receive(1):
+        if m.get("method") == "textDocument/publishDiagnostics":
+            if any("this_key_is_not_in_the_schema" in d["message"] for d in m["params"]["diagnostics"]):
+                found = True
+if not found:
+    sys.exit("coal-lsp published no diagnostic for the field the schema does not allow")
+
+send({"jsonrpc": "2.0", "id": 2, "method": "shutdown"})
+receive(2)
+send({"jsonrpc": "2.0", "method": "exit"})
+try:
+    code = server.wait(timeout=10)
+except subprocess.TimeoutExpired:
+    server.kill()
+    sys.exit("coal-lsp did not exit after the exit notification")
+print("lsp-handshake: ok (exit status %d)" % code)
+sys.exit(0 if code == 0 else 1)

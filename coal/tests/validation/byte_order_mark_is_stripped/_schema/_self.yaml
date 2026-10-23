@@ -1,0 +1,6 @@
+﻿# The schema file carries a BOM too, so neither side of the comparison may
+# keep it: a BOM in the schema would declare a field nobody can write.
+handlers:
+  $each:
+    $optional:
+      timeout: integer

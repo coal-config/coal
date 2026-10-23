@@ -1,0 +1,3 @@
+executable: string
+$optional:
+  threads: integer

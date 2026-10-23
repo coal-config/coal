@@ -1,0 +1,4 @@
+primary:
+  port: 80
+replica:
+  port: "eighty"

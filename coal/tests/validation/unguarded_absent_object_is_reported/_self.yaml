@@ -1,0 +1,5 @@
+# No guard, so reaching through an absent object is reported exactly as
+# reaching an absent field is.
+node:
+  name: cop01
+  port: "{{ node.telemetry.port }}"

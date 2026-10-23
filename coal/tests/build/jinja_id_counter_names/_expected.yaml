@@ -1,0 +1,6 @@
+pool_name: db
+services:
+  first:
+    handle: 1
+  second:
+    handle: 2

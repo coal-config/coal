@@ -1,0 +1,60 @@
+To: submit@bugs.debian.org
+Subject: RFS: coal/0.4.8-1 [ITP] -- compiler for YAML configurations split over a directory tree
+
+Package: sponsorship-requests
+Severity: wishlist
+X-Debbugs-Cc: debian-rust@lists.debian.org, y.walen@gmail.com
+
+Dear mentors,
+
+I am looking for a sponsor for my package "coal":
+
+ * Package name     : coal
+   Version          : 0.4.8-1
+   Upstream contact : Yannick Walen <y.walen@gmail.com>
+ * URL              : https://github.com/coal-config/coal
+ * License          : Apache-2.0
+ * Vcs              : https://salsa.debian.org/debian/coal
+   Section          : utils
+
+The source builds the following binary packages:
+
+  coal - compiler for YAML configurations split over a directory tree
+  coal-lsp - language server for COAL YAML configurations
+
+To access further information about this package, please visit the
+following URL:
+
+  https://mentors.debian.net/package/coal/
+
+Alternatively, you can download the package with 'dget' using this
+command:
+
+  dget -x https://mentors.debian.net/debian/pool/main/c/coal/coal_0.4.8-1.dsc
+
+Notes for the reviewer:
+
+ * coal is a Cargo workspace with two crates (coal, coal-lsp). dh-cargo's
+   buildsystem builds a single crate, so debian/rules drives
+   /usr/share/cargo/bin/cargo directly, the way dh-cargo does internally,
+   and runs dh-cargo-built-using for both binaries.
+ * All crates come from the archive; there is no vendoring. The upstream
+   Cargo.lock is removed before the build (debian/source/options ignores
+   that) so cargo resolves against the librust-*-dev packages.
+ * The full test suite runs at build time. autopkgtests run the upstream
+   build fixtures and the shipped example against the installed coal, and
+   do an initialize / diagnostics / shutdown round trip with coal-lsp.
+ * lintian (pedantic) is clean apart from an override for
+   embedded-library libyaml, which comes from rust-unsafe-libyaml
+   through serde_yaml and is recorded in Static-Built-Using.
+ * I am the upstream author.
+
+Changes for the initial release:
+
+ coal (0.4.8-1) unstable; urgency=medium
+ .
+   * Initial release. (Closes: #ITPBUG)
+
+Regards,
+--
+  Yannick Walen

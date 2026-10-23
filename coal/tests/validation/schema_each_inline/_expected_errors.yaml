@@ -1,0 +1,3 @@
+- type: InvalidType
+  path: services.web.port
+  contains: "expected integer"

@@ -1,0 +1,6 @@
+thermal:
+  unit: celsius
+  poll_interval: 30
+pressure:
+  unit: bar
+  poll_interval: 10

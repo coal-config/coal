@@ -1,0 +1,6 @@
+- type: FieldNotAllowed
+  path: target.b
+  contains: "not allowed"
+- type: MissingMandatoryField
+  path: source.b
+  contains: "expected object"

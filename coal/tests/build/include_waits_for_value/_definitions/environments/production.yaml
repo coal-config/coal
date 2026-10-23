@@ -1,0 +1,2 @@
+site: prod-site
+workers: 4

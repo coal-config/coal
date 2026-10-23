@@ -1,0 +1,4 @@
+name: server
+telemetry:
+  endpoint: http://collector
+  port: 9000

@@ -1,0 +1,3 @@
+environment: staging
+node: cop01
+site: stage

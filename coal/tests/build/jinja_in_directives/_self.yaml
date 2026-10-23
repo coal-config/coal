@@ -1,0 +1,4 @@
+environment: prod
+tier: "{{ 'high' if environment == 'prod' else 'low' }}"
+active:
+  $include: "envs.{{ environment }}"

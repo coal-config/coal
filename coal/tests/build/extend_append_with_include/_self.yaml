@@ -1,0 +1,10 @@
+main:
+  $include: lists.sources
+  combined_list:
+    $append:
+      - first
+      - second
+    $extend:
+      - main.list1
+      - main.list2
+      - main.list3

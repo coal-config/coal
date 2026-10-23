@@ -1,0 +1,11 @@
+main:
+  environments:
+    production:
+      name: "{{ parent(1).key() }}"
+      servers:
+        app1:
+          env: "{{ parent(1).key() }}"
+          host: server1
+        app2:
+          env: "{{ parent(1).key() }}"
+          host: server2

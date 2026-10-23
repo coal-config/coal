@@ -1,0 +1,11 @@
+regions:
+  eu:
+    zone_a:
+      id: a
+      tier: standard
+    zone_b:
+      id: b
+      tier: premium
+  us:
+    zone_c:
+      id: c

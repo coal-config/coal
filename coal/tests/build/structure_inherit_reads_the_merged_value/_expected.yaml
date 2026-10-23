@@ -1,0 +1,8 @@
+node: a
+node_type: cop
+node_types:
+  cop:
+    role: control
+  dp:
+    role: data
+role: control

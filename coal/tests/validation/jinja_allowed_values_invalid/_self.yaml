@@ -1,0 +1,4 @@
+clusters:
+  - "prod"
+  - "staging"
+assigned_cluster: "test"

@@ -1,0 +1,2 @@
+# The same shape as `primary`, named by its path in _schemas.
+$inherit: primary

@@ -1,0 +1,4 @@
+kind: database
+tuning:
+  cache_size: 100
+  strategy: lru

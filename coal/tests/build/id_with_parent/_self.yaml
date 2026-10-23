@@ -1,0 +1,18 @@
+# The $id counter name resolves "{{ parent(1).key() }}" relative to the $id field itself,
+# so "{{ parent(1).key() }}" is the node that holds the $id.
+#
+# alpha_db and beta_db use the same placeholder text but different holders, so
+# they resolve to the distinct counter names "alpha_db" and "beta_db" and each
+# starts an independent counter at 1. (If "{{ parent(1).key() }}" were left as a literal
+# string they would share one counter and read 1 and 2.)
+alpha_db:
+  $id: "{{ parent(1).key() }}"
+beta_db:
+  $id: "{{ parent(1).key() }}"
+# {{ parent(2).key() }} walks two levels up from the $id field, so both of these resolve to
+# the same name "grandparents" and share one counter.
+grandparents:
+  east:
+    $id: "{{ parent(2).key() }}"
+  west:
+    $id: "{{ parent(2).key() }}"

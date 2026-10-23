@@ -1,0 +1,11 @@
+regions:
+  eu:
+    name: eu
+    tier: standard
+    zones:
+      a:
+        id: a
+        replicas: 2
+      b:
+        id: b
+        replicas: 5

@@ -1,0 +1,8 @@
+pool_name: db
+services:
+  first:
+    handle:
+      $id_after: "{{ pool_name }}_pool"
+  second:
+    handle:
+      $id_after: "{{ pool_name }}_pool"

@@ -1,0 +1,58 @@
+.TH COAL\-LSP 1 "October 2026" "coal 0.4.8" "User Commands"
+.SH NAME
+coal\-lsp \- language server for COAL configuration directories
+.SH SYNOPSIS
+.B coal\-lsp
+.SH DESCRIPTION
+.B coal\-lsp
+is a Language Server Protocol server for
+.BR coal (1)
+configuration directories.
+An editor starts it and talks to it over standard input and standard
+output; it is not meant to be run by hand.
+.PP
+The server looks through the editor's workspace folders for COAL
+projects.
+A folder is a project when it holds a
+.I _structure.yaml
+file, a
+.I _schema/
+folder, or an empty marker file named
+.IR .coal .
+Folders whose name starts with
+.B _
+or
+.BR . ,
+and folders named
+.I node_modules
+or
+.IR target ,
+are not searched.
+A file belongs to the nearest project above it.
+.PP
+Each project is validated exactly as
+.B coal \-\-validate
+run in that folder would validate it, using the same code, so the editor
+and a command\-line build agree about what is wrong.
+Findings are published as diagnostics on the line where the mistake is
+written, which is often not the file being edited.
+.PP
+The server also offers hover information and completion: names in scope
+inside
+.B {{ ... }}
+templates, definitions after
+.B $include:
+and
+.BR $include_optional: ,
+keys for
+.B $keys
+lists, and the values a schema allows.
+.SH OPTIONS
+.B coal\-lsp
+takes no options.
+.SH SEE ALSO
+.BR coal (1)
+.PP
+.UR https://microsoft.github.io/language\-server\-protocol/
+Language Server Protocol
+.UE

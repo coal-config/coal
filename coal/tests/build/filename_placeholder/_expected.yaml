@@ -1,0 +1,7 @@
+main:
+  production:
+    name: production
+    environment: prod
+  staging:
+    name: staging
+    environment: stage

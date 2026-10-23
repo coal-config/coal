@@ -1,0 +1,6 @@
+services:
+  api:
+    port: 9000
+  web:
+    name: web
+    port: 8080

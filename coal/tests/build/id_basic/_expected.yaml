@@ -1,0 +1,7 @@
+main:
+  server1:
+    server_id: 1
+    name: server1
+  server2:
+    name: server2
+    server_id: 2

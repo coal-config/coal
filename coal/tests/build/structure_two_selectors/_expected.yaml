@@ -1,0 +1,22 @@
+alerting: true
+ip: 10.0.0.1
+mode: operational
+modes:
+  operational:
+    alerting: true
+    workers: 12
+network:
+  net: 10.0.0
+node: cop01
+node_type: cop
+node_types:
+  cop:
+    role: control
+    workers: 2
+nodes:
+  cop01:
+    ip: 10.0.0.1
+    node_type: cop
+    workers: 5
+role: control
+workers: 12

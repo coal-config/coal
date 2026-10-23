@@ -1,0 +1,45 @@
+To: submit@bugs.debian.org
+Cc: debian-rust@lists.debian.org
+Subject: ITP: coal -- compiler for YAML configurations split over a directory tree
+
+Package: wnpp
+Severity: wishlist
+Owner: Yannick Walen <y.walen@gmail.com>
+X-Debbugs-Cc: debian-devel@lists.debian.org, y.walen@gmail.com
+
+* Package name    : coal
+  Version         : 0.4.8
+  Upstream Contact: Yannick Walen <y.walen@gmail.com>
+* URL             : https://github.com/coal-config/coal
+* License         : Apache-2.0
+  Programming Lang: Rust
+  Description     : compiler for YAML configurations split over a directory tree
+
+COAL (Coalescence) turns a directory of small YAML files into one
+validated YAML configuration. The folders are the structure: a folder is
+a level of nesting and a file is a field, so nothing has to declare the
+layout.
+
+Shared settings are written once and applied to every sibling, reusable
+shapes can be included by name, and any value can be a Jinja template
+that reads any other part of the configuration. A YAML schema, which may
+itself use Jinja, checks the result against the configuration's own data.
+One directory can describe many configurations (for example one per
+environment and node) and coal builds or validates each of them.
+
+The source also builds coal-lsp, a Language Server Protocol server that
+reports the same findings as "coal --validate" in an editor.
+
+Why package it: coal is for keeping large, layered deployment
+configurations (many environments, many nodes) maintainable, where one
+monolithic YAML file, or templating it with a general-purpose tool,
+stops scaling. Having it in Debian lets it be installed on the build and
+deployment hosts that consume those configurations.
+
+Dependencies: every crate coal needs is already in unstable (clap,
+marked-yaml, minijinja, regex, serde, serde_yaml, tokio,
+tower-lsp-server). It builds and passes its test suite against them.
+
+Maintenance: I am the upstream author. I intend to maintain the package
+myself on Salsa, and I am looking for a sponsor, ideally from the Rust
+team.

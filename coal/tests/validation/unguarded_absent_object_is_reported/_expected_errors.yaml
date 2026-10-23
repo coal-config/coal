@@ -1,0 +1,3 @@
+- type: UnresolvedTemplate
+  path: node.port
+  contains: "it reads 'node.telemetry.port', which does not exist"

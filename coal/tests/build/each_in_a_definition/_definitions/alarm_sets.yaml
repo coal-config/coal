@@ -1,0 +1,16 @@
+# A definition may carry an `$each` of its own. It is applied where the
+# definition lands, so every alarm the include brings in receives it.
+node_alarms:
+  $each:
+    alarm_id:
+      $id_after: alarm_id
+  disk_status:
+    title: "{{ parent(3).node_name | default('<node>') }} disk"
+    level: critical
+  cms_status:
+    title: "CMSClient {{ parent(3).node_name | default('<node>') }}"
+    peers: |
+      {%- for peer in nodes.values() if peer.components.cmsserver is defined %}
+      - {{ peer.node_name }}
+      {%- endfor %}
+    level: critical

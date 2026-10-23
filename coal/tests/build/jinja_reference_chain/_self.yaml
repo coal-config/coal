@@ -1,0 +1,4 @@
+last: "{{ middle }}/last"
+middle: "{{ first }}/middle"
+first: /start
+list_of_links: "{{ [last, middle] }}"

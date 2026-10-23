@@ -1,0 +1,4 @@
+paths:
+  socket: /run/api.sock
+log: "{{ paths.log_dir }}"
+socket: "{{ paths.socket }}"

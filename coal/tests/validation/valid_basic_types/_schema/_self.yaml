@@ -1,0 +1,9 @@
+name: string
+port: integer
+ratio: float
+count: number
+enabled: bool
+tags: "[string]"
+limits:
+  cpu: integer
+anything: any

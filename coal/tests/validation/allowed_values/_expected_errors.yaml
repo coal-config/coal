@@ -1,0 +1,3 @@
+- type: ValueNotAllowed
+  path: environment
+  contains: "not in allowed list"

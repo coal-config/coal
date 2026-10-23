@@ -1,0 +1,2 @@
+clusters: "[string]"
+assigned_cluster: "{{ clusters }}"

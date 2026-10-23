@@ -1,0 +1,5 @@
+# No fallback, so the missing field is reported as missing. Two siblings read
+# the parent the same way; the pair must not be reported as a reference loop.
+node:
+  guarded: "{{ parent().node_value | default('safe') }}"
+  bare: "{{ parent().node_value }}"

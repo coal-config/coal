@@ -1,0 +1,12 @@
+alerting: true
+hostname: cop01.prod
+mode: operational
+node: cop01
+node_type: cop
+node_types:
+  cop:
+    role: control
+    workers: 2
+region: eu
+role: control
+workers: 12

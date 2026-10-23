@@ -1,0 +1,7 @@
+kind: string
+$template: |
+  {%- if parent().kind == 'database' %}
+  db_port: integer
+  $optional:
+    db_replica: string
+  {%- endif %}

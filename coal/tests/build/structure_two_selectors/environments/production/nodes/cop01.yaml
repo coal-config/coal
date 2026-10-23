@@ -1,0 +1,3 @@
+node_type: cop
+workers: 5
+ip: "{{ network.net }}.1"

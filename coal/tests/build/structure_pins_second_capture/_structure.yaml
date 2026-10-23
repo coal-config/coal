@@ -1,0 +1,4 @@
+selectors:
+  - "environments.{environment}.nodes.{node}"
+drop:
+  - environments

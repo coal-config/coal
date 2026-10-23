@@ -1,0 +1,3 @@
+node:
+  name: string
+  port: string

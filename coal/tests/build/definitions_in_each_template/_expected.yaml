@@ -1,0 +1,5 @@
+nodes:
+  cop01:
+    id: 1
+    role:
+      kind: node

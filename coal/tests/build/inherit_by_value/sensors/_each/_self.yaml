@@ -1,0 +1,3 @@
+# Said once, for every sensor: take the values of whichever type the
+# sensor named. parent() is the sensor the copy landed in.
+$inherit: "sensor_types.{{ parent().sensor_type }}"

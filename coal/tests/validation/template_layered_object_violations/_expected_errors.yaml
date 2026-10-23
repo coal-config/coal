@@ -1,0 +1,6 @@
+- type: FieldNotAllowed
+  path: db.bogus
+  contains: "not allowed"
+- type: MissingMandatoryField
+  path: db.password
+  contains: "expected string"

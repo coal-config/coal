@@ -1,0 +1,6 @@
+type: string
+$template: |
+  {%- if parent().type in ['database', 'cache'] %}
+  db_port: integer
+  db_password: string
+  {%- endif %}

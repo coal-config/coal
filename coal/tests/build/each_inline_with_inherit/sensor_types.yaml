@@ -1,0 +1,4 @@
+thermal:
+  unit: celsius
+pressure:
+  unit: bar

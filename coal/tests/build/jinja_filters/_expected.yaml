@@ -1,0 +1,24 @@
+all_names: alpha, beta, gamma
+eu_hosts:
+  - alpha
+  - gamma
+hosts:
+  - name: alpha
+    zone: eu
+  - name: beta
+    zone: us
+  - name: gamma
+    zone: eu
+sorted_names:
+  - alpha
+  - beta
+  - gamma
+transport_entries:
+  - key: tcp
+    value: 1
+  - key: udp
+    value: 2
+transports:
+  tcp: 1
+  udp: 2
+upper_first: ALPHA

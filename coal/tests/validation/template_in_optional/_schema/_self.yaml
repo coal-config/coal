@@ -1,0 +1,8 @@
+kind: string
+$optional:
+  tuning:
+    cache_size: integer
+    $template: |
+      {%- if parent().cache_size > 50 %}
+      strategy: string
+      {%- endif %}

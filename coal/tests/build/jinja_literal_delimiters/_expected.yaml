@@ -1,0 +1,7 @@
+collected:
+  - "{{ placeholder }}"
+  - "hello {{ x }} world"
+literal: "{{ placeholder }}"
+reader: "{{ placeholder }}"
+sentence: "hello {{ x }} world"
+tail: "prefix-{{ placeholder }}"

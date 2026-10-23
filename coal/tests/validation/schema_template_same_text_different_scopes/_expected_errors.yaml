@@ -1,0 +1,9 @@
+- type: ValueNotAllowed
+  path: links.second.host
+  contains: "not in allowed list"
+- type: ValueNotAllowed
+  path: links.third.host
+  contains: "not in allowed list"
+- type: FieldNotAllowed
+  path: links.third.ttl
+  contains: "not allowed"

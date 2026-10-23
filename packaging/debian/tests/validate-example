@@ -1,0 +1,26 @@
+#!/bin/sh
+# Outputs go next to the copy, not into it: coal reads every file in the
+# directory it runs in.
+#
+# The shipped example validates cleanly, a mistake in it is reported with a
+# non-zero exit status, and the selection options work.
+set -eu
+
+work="${AUTOPKGTEST_TMP:-$(mktemp -d)}"
+cp -r example "$work/example"
+cd "$work/example"
+
+coal --version
+coal > "$work/out.yaml"
+test -s "$work/out.yaml"
+coal --validate
+coal -s staging > "$work/staging.yaml"
+test -s "$work/staging.yaml"
+
+echo "this_key_is_not_in_the_schema: 1" >> users/admin.yaml
+if coal --validate 2> "$work/report.txt"; then
+    echo "coal --validate accepted a field the schema does not allow" >&2
+    exit 1
+fi
+grep -q FieldNotAllowed "$work/report.txt"
+echo "validate-example: ok"

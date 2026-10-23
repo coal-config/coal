@@ -1,0 +1,6 @@
+- type: MissingMandatoryField
+  path: holder.port
+  contains: "/_schema/holder/_self.yaml] holder.port ["
+- type: MissingMandatoryField
+  path: holder.retries
+  contains: "-> write it in 'holder/_self.yaml' or 'holder/retries.yaml'"

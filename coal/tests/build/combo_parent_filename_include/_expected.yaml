@@ -1,0 +1,18 @@
+main:
+  environments:
+    dev:
+      servers:
+        web:
+          env: dev
+          name: web
+        api:
+          env: dev
+          name: api
+    prod:
+      servers:
+        web:
+          env: prod
+          name: web
+        api:
+          env: prod
+          name: api

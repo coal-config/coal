@@ -1,0 +1,9 @@
+nodes:
+  cop01:
+    node_value: alpha
+    label: alpha
+    mirror: alpha
+  cop02:
+    other: 1
+    label: none
+    mirror: none

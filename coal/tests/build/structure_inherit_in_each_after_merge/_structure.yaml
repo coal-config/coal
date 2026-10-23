@@ -1,0 +1,8 @@
+selectors:
+  - "environments.{environment}.nodes.{node}"
+layers:
+  - "environments.{{ environment }}"
+  - "{node}"
+drop:
+  - environments
+  - nodes

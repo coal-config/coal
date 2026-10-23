@@ -1,0 +1,21 @@
+[package]
+name = "coal"
+version.workspace = true
+description = "Compiles a directory of small YAML files into one validated YAML configuration"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_yaml = "0.9"
+regex = "1.12.3"
+clap = { version = "4.6.0", features = ["derive"] }
+marked-yaml = "0.8.0"
+minijinja = { version = "2.19", features = ["loop_controls"] }

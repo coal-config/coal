@@ -1,0 +1,9 @@
+environments:
+  production:
+    name: production
+    retries: 3
+    site: prod
+  staging:
+    name: staging
+    retries: 3
+    site: stage

@@ -1,0 +1,6 @@
+node_types: any
+hardware_kinds: any
+nodes:
+  $each:
+    type: "{{node_types}}"
+    hardware: "{{hardware_kinds}}"

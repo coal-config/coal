@@ -1,0 +1,11 @@
+app:
+  workers: 12
+  timeout: 30
+  arguments:
+    - "-v"
+    - "-production"
+timeout: 30
+arguments:
+  - "-v"
+  - "-production"
+first_argument: "-v"

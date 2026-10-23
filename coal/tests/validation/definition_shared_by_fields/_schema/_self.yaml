@@ -1,0 +1,5 @@
+cluster:
+  primary:
+    $include: endpoint
+  secondary:
+    $include: endpoint

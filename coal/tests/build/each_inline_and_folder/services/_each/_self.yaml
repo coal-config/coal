@@ -1,0 +1,2 @@
+from_each_folder: true
+shared: each-folder

@@ -1,0 +1,5 @@
+defaults:
+  retries: 3
+nodes:
+  cop01:
+    hostname: h1

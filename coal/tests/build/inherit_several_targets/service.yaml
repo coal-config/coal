@@ -1,0 +1,5 @@
+# A later target refines an earlier one; the object itself beats both.
+$inherit:
+  - defaults
+  - heavy
+site: local
