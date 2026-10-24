@@ -140,9 +140,10 @@ maintainer="$(sed -n 's/^Maintainer: //p' "$src/debian/control")"
     dch -b --newversion "$ppa_version" --distribution "$series" --force-distribution \
         "PPA build for Ubuntu $ubuntu, with the crates bundled from Cargo.lock.")
 
-# 5. The source package. -d: the build dependencies are for Launchpad, not
-#    this machine.
-(cd "$src" && dpkg-buildpackage -S -sa -d -us -uc > "$work/source-build.log" 2>&1) \
+# 5. The source package. The build dependencies are for Launchpad, not this
+#    machine: -d skips checking for them, and --no-pre-clean skips cleaning
+#    the just-unpacked tree, which would need them (debhelper).
+(cd "$src" && dpkg-buildpackage -S -sa -d --no-pre-clean -us -uc > "$work/source-build.log" 2>&1) \
     || { cat "$work/source-build.log" >&2; exit 1; }
 changes="$work/coal_${ppa_version}_source.changes"
 

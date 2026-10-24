@@ -63,7 +63,9 @@ cmd_source() {
     mkdir -p "$src"
     tar -xzf "$dir/coal_$version.orig.tar.gz" -C "$src" --strip-components=1
     cp -r "$repo/packaging/debian" "$src/debian"
-    (cd "$src" && dpkg-buildpackage -S -sa -d -us -uc > "$dir/source-build.log" 2>&1) \
+    # --no-pre-clean: the tree was just unpacked, and cleaning it would need
+    # the build dependencies (debhelper, rustc) on this machine.
+    (cd "$src" && dpkg-buildpackage -S -sa -d --no-pre-clean -us -uc > "$dir/source-build.log" 2>&1) \
         || { cat "$dir/source-build.log" >&2; fail "building the source package failed"; }
     echo "$dir/coal_$(debian_version)_source.changes"
 }
